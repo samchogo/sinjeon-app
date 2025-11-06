@@ -15,7 +15,7 @@ export default function WebviewScreen() {
   const router = useRouter();
   const injectedGeolocationJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }\n    navigator.geolocation.getCurrentPosition = function(success, error) {\n      const id = String(Date.now());\n      window.__RN_LOCATION_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id }));\n    };\n    window.__onNativeLocation = function(payload) {\n      try {\n        const { id, coords, error } = payload || {};\n        const cb = window.__RN_LOCATION_CALLBACKS[id];\n        if (!cb) return;\n        if (coords && cb.success) cb.success({ coords });\n        else if (error && cb.error) cb.error(error);\n        delete window.__RN_LOCATION_CALLBACKS[id];\n      } catch (e) {}\n    };\n  } catch (e) {}\n})(); true;`, []);
 
-  const injectedWindowOpenJs = useMemo(() => `(() => {\n  try {\n    const sendOpen = (u) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_WINDOW', url: u })); } catch(e){}\n    };\n    const origOpen = window.open;\n    window.open = function(url, name, specs) {\n      if (url) sendOpen(url);\n      return null;\n    };\n    document.addEventListener('click', function(e){\n      const a = e.target && e.target.closest ? e.target.closest('a[target="_blank"]') : null;\n      if (a && a.href) { e.preventDefault(); sendOpen(a.href); }\n    }, true);\n  } catch(e){}\n})(); true;`, []);
+  const injectedWindowOpenJs = useMemo(() => `(() => {\n  try {\n    const sendOpen = (u,n,s) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_WINDOW', url: u, name: n || '', specs: s || '' })); } catch(e){}\n    };\n    const sendOpenBlank = (u) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_TARGET_BLANK', url: u })); } catch(e){}\n    };\n    const origOpen = window.open;\n    window.open = function(url, name, specs) {\n      if (url) sendOpen(url, name, specs);\n      return null;\n    };\n    document.addEventListener('click', function(e){\n      const a = e.target && e.target.closest ? e.target.closest('a[target=\"_blank\"]') : null;\n      if (a && a.href) {\n        if (/^https?:\\/\\//i.test(a.href)) { e.preventDefault(); sendOpenBlank(a.href); }\n      }\n    }, true);\n  } catch(e){}\n})(); true;`, []);
 
   const injectedScanJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_SCAN_CALLBACKS) { window.__RN_SCAN_CALLBACKS = {}; }\n    window.requestBarcodeScan = function(success, error){\n      const id = String(Date.now());\n      window.__RN_SCAN_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCAN_BARCODE', id }));\n    };\n    window.__onNativeScan = function(payload){\n      try {\n        const { id, code, error } = payload || {};\n        const cb = window.__RN_SCAN_CALLBACKS[id];\n        if (!cb) return;\n        if (code && cb.success) cb.success({ code }); else if (error && cb.error) cb.error(error);\n        delete window.__RN_SCAN_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
 
@@ -75,23 +75,35 @@ export default function WebviewScreen() {
           return true;
         }}
         onOpenWindow={(event: any) => {
-          // Fallback for platforms that support onOpenWindow
+          // Fallback: 내부 화면으로 열되 __no_header=1 있으면 헤더 숨김
           const targetUrl = event?.nativeEvent?.targetUrl;
-          if (targetUrl) {
-            const t = targetUrl;
-            if (t.startsWith('intent://')) { Linking.openURL(t).catch(() => {}); return; }
-            const schemes = ['ispmobile://','kakaotalk://','payco://','samsungpay://','kftc-bankpay://','passapp://'];
-            if (schemes.some((s) => t.startsWith(s))) { Linking.openURL(t).catch(() => {}); return; }
-            router.push({ pathname: '/webview-view', params: { url: t } });
-          }
+          if (!targetUrl) return;
+          if (targetUrl.startsWith('intent://')) { Linking.openURL(targetUrl).catch(() => {}); return; }
+          const schemes = ['ispmobile://','kakaotalk://','payco://','samsungpay://','kftc-bankpay://','passapp://'];
+          if (schemes.some((s) => targetUrl.startsWith(s))) { Linking.openURL(targetUrl).catch(() => {}); return; }
+          const hide = /[?&]__no_header=1\b/.test(targetUrl);
+          router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
         }}
         geolocationEnabled
         injectedJavaScriptBeforeContentLoaded={injectedAllWithFcmJs}
         onMessage={async (event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data || '{}');
-            if (data.type === 'OPEN_WINDOW' && data.url) {
-              router.push({ pathname: '/webview-view', params: { url: data.url } });
+            if (data.type === 'OPEN_TARGET_BLANK' && data.url) {
+              const u = String(data.url);
+              if (u.startsWith('http://') || u.startsWith('https://')) {
+                Linking.openURL(u).catch(() => {});
+                return;
+              }
+            } else if (data.type === 'OPEN_WINDOW' && data.url) {
+              const u = String(data.url);
+              const name = String(data.name || '');
+              const specs = String(data.specs || '');
+              const hideByName = name === 'noheader';
+              const hideBySpecs = /(^|,|;)\s*noheader\b/i.test(specs);
+              const hideByQuery = /[?&]__no_header=1\b/.test(u);
+              const hide = hideByName || hideBySpecs || hideByQuery;
+              router.push({ pathname: '/webview-view', params: { url: u, ...(hide ? { noHeader: '1' } : {}) } });
               return;
             } else if (data.type === 'REQUEST_FCM_TOKEN') {
               const id = String(data.id);

@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
 export default function WebviewViewScreen() {
-  const { url } = useLocalSearchParams<{ url?: string }>();
+  const { url, noHeader } = useLocalSearchParams<{ url?: string; noHeader?: string }>();
   const router = useRouter();
   const webviewRef = React.useRef<WebView>(null);
   const [title, setTitle] = React.useState<string>('');
@@ -25,6 +25,20 @@ export default function WebviewViewScreen() {
       setTimeout(sendTitle, 0);
     } catch(e){}
   })(); true;`;
+
+  const { hideHeader, resolvedUrl } = React.useMemo(() => {
+    let hide = noHeader === '1';
+    let cleaned = String(url || '');
+    try {
+      const u = new URL(String(url));
+      if (u.searchParams.get('__no_header') === '1') {
+        hide = true;
+        u.searchParams.delete('__no_header');
+        cleaned = u.toString();
+      }
+    } catch {}
+    return { hideHeader: hide, resolvedUrl: cleaned };
+  }, [url, noHeader]);
 
   if (!url) {
     return (
@@ -62,19 +76,21 @@ export default function WebviewViewScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={handleBackPress} hitSlop={10} style={styles.headerButton}>
-        <Ionicons name="chevron-back" size={24} color="#fff" />
-        </Pressable>
-        <Text numberOfLines={1} style={styles.headerTitle}>{title || 'Loading...'}</Text>
-        <Pressable onPress={handleClose} hitSlop={10} style={styles.headerButton}>
-          <Ionicons name="close" size={24} color="#fff" />
-        </Pressable>
-      </View>
+      {!hideHeader && (
+        <View style={styles.header}>
+          <Pressable onPress={handleBackPress} hitSlop={10} style={styles.headerButton}>
+          <Ionicons name="chevron-back" size={24} color="#fff" />
+          </Pressable>
+          <Text numberOfLines={1} style={styles.headerTitle}>{title || 'Loading...'}</Text>
+          <Pressable onPress={handleClose} hitSlop={10} style={styles.headerButton}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </Pressable>
+        </View>
+      )}
 
       <WebView
         ref={webviewRef}
-        source={{ uri: String(url) }}
+        source={{ uri: resolvedUrl || String(url) }}
         style={styles.webview}
         onNavigationStateChange={(st) => setCanGoBack(st.canGoBack)}
         javaScriptEnabled
