@@ -99,8 +99,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       package: ANDROID_PACKAGE,
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
+      notification: {
+        icon: './assets/images/notification-icon.png',
+        color: '#863534',
+      },
       adaptiveIcon: {
-        backgroundColor: '#E6F4FE',
+        backgroundColor: '#863534',
         foregroundImage: './assets/images/android-icon-foreground.png',
         backgroundImage: './assets/images/android-icon-background.png',
         monochromeImage: './assets/images/android-icon-monochrome.png',
@@ -117,11 +121,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       [
         'expo-splash-screen',
         {
-          image: './assets/images/splash-icon.png',
-          imageWidth: 200,
+          image: './assets/images/splash-image.png',
+          imageWidth: 220,
           resizeMode: 'contain',
-          backgroundColor: '#ffffff',
-          dark: { backgroundColor: '#000000' },
+          backgroundColor: '#863534',
+          dark: { backgroundColor: '#863534' },
         },
       ],
       'expo-barcode-scanner',

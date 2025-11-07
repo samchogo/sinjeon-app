@@ -3,6 +3,7 @@ type ScanResult = { id: string; code: string };
 type EventMap = {
   SCAN_RESULT: ScanResult;
   CONTACT_PICKED: { id: string; name: string; number: string };
+  PUSH_CLICKED: { payload: any };
 };
 
 class SimpleEventBus {

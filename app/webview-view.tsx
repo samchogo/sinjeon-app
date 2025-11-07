@@ -13,6 +13,8 @@ export default function WebviewViewScreen() {
   const webviewRef = React.useRef<WebView>(null);
   const [title, setTitle] = React.useState<string>('');
   const [canGoBack, setCanGoBack] = React.useState(false);
+  const pendingBackRef = React.useRef(false);
+  const backTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const injectedTitleObserver = `(() => {
     function sendTitle(){ try { window.ReactNativeWebView?.postMessage(JSON.stringify({ type:'TITLE', title: document.title||'' })); } catch(e){} }
@@ -25,6 +27,7 @@ export default function WebviewViewScreen() {
       setTimeout(sendTitle, 0);
     } catch(e){}
   })(); true;`;
+  const injectedKakaoShareJs = `(() => { try { window.requestShareKakao = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
 
   const { hideHeader, resolvedUrl } = React.useMemo(() => {
     let hide = noHeader === '1';
@@ -50,9 +53,25 @@ export default function WebviewViewScreen() {
     );
   }
 
-  const handleBackPress = () => {
+  const doDefaultBack = React.useCallback(() => {
     if (canGoBack) webviewRef.current?.goBack();
     else router.back();
+  }, [canGoBack, router]);
+
+  const requestWebBackDecision = () => {
+    if (pendingBackRef.current) return;
+    pendingBackRef.current = true;
+    const js = `(() => { try { var ret = ''; if (typeof window.eventAppToCoop === 'function') { ret = window.eventAppToCoop('HISTORY_BACK', null) || ''; } window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'APP_TO_COOP_EVENT_RESPONSE', ret: String(ret) })); } catch (e) { try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'APP_TO_COOP_EVENT_RESPONSE', ret: '' })); } catch (_) {} } })(); true;`;
+    webviewRef.current?.injectJavaScript(js);
+    if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    backTimerRef.current = setTimeout(() => {
+      doDefaultBack();
+      pendingBackRef.current = false;
+    }, 200);
+  };
+
+  const handleBackPress = () => {
+    requestWebBackDecision();
   };
 
   const handleClose = () => {
@@ -62,16 +81,12 @@ export default function WebviewViewScreen() {
   useFocusEffect(
     useCallback(() => {
       const onBack = () => {
-        if (canGoBack) {
-          webviewRef.current?.goBack();
-        } else {
-          router.back();
-        }
+        requestWebBackDecision();
         return true;
       };
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
       return () => sub.remove();
-    }, [canGoBack, router])
+    }, [])
   );
 
   return (
@@ -98,6 +113,7 @@ export default function WebviewViewScreen() {
         thirdPartyCookiesEnabled
         onShouldStartLoadWithRequest={(req) => {
           const u = req?.url || '';
+          if (u.startsWith('sulbingapp://close_webview')) { router.back(); return false; }
           if (u.startsWith('intent://')) { Linking.openURL(u).catch(() => {}); return false; }
           const schemes = ['ispmobile://','kakaotalk://','payco://','samsungpay://','kftc-bankpay://','passapp://'];
           if (schemes.some((s) => u.startsWith(s))) { Linking.openURL(u).catch(() => {}); return false; }
@@ -111,10 +127,41 @@ export default function WebviewViewScreen() {
             if (schemes.some((s) => targetUrl.startsWith(s))) { Linking.openURL(targetUrl).catch(() => {}); return; }
           }
         }}
-        injectedJavaScriptBeforeContentLoaded={injectedTitleObserver}
+        injectedJavaScriptBeforeContentLoaded={`${injectedTitleObserver}\n${injectedKakaoShareJs}`}
         onMessage={(evt) => {
           try {
             const data = JSON.parse(evt.nativeEvent.data || '{}');
+            if (data.type === 'REQUEST_SHARE_KAKAO') {
+              const shareUrl = String(data.url || '');
+              try {
+                const tryUrl = `kakaotalk://send?text=${encodeURIComponent(shareUrl)}`;
+                Linking.openURL(tryUrl).catch(() => {
+                  import('react-native').then(({ Share }) => {
+                    Share.share({ message: shareUrl });
+                  });
+                });
+              } catch {}
+              return;
+            }
+            if (data.type === 'APP_TO_COOP_EVENT_RESPONSE') {
+              try {
+                const retStr = String(data.ret || '');
+                let retObj: any = {};
+                try { retObj = retStr ? JSON.parse(retStr) : {}; } catch { retObj = {}; }
+                const t = retObj?.type;
+                if (backTimerRef.current) { clearTimeout(backTimerRef.current); backTimerRef.current = null; }
+                if (t === 'REQ_WEBVIEW_HISTORY_BACK_STOP') {
+                  // 웹이 자체 처리
+                } else if (t === 'REQ_WEBVIEW_HISTORY_BACK_START') {
+                  doDefaultBack();
+                } else {
+                  doDefaultBack();
+                }
+              } finally {
+                pendingBackRef.current = false;
+              }
+              return;
+            }
             if (data.type === 'TITLE') setTitle(data.title || '');
           } catch {}
         }}

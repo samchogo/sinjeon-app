@@ -23,7 +23,48 @@ export default function WebviewScreen() {
   const injectedContactsJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_CONTACT_CALLBACKS) window.__RN_CONTACT_CALLBACKS = {};\n    window.requestContactPick = function(success, error){\n      const id = String(Date.now());\n      window.__RN_CONTACT_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_CONTACT', id }));\n    };\n    window.__onNativeContact = function(payload){\n      try {\n        const { id, name, number, error } = payload || {};\n        const cb = window.__RN_CONTACT_CALLBACKS[id];\n        if (!cb) return;\n        if (name && number && cb.success) cb.success({ name, number });\n        else if (error && cb.error) cb.error(error);\n        delete window.__RN_CONTACT_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
   const injectedAllJs = useMemo(() => `${injectedCombinedJs}\n${injectedContactsJs}`, [injectedCombinedJs, injectedContactsJs]);
   const injectedFcmJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {};\n    window.requestFcmToken = function(success, error){\n      const id = String(Date.now());\n      window.__RN_FCM_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));\n    };\n    window.__onNativeFcmToken = function(payload){\n      try {\n        const { id, token, error } = payload || {};\n        const cb = window.__RN_FCM_CALLBACKS[id];\n        if (!cb) return;\n        if (token && cb.success) cb.success({ token }); else if (error && cb.error) cb.error(error);\n        delete window.__RN_FCM_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
-  const injectedAllWithFcmJs = useMemo(() => `${injectedAllJs}\n${injectedFcmJs}`, [injectedAllJs, injectedFcmJs]);
+  const injectedKakaoShareJs = useMemo(() => `(() => {\n  try {\n    window.requestShareKakao = function(url){\n      try {\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') }));\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
+  const injectedAllWithFcmJs = useMemo(() => `${injectedAllJs}\n${injectedFcmJs}\n${injectedKakaoShareJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs]);
+  const injectedCoopBridgeJs = useMemo(
+    () =>
+      `(() => {
+  try {
+    if (!window.AppInterfaceForCoop) window.AppInterfaceForCoop = {};
+    var bridge = window.AppInterfaceForCoop;
+    if (typeof bridge.onmessage !== 'function') {
+      bridge.onmessage = function(){};
+    }
+    bridge.postMessage = function(message){
+      try {
+        var msg = (message == null) ? '' : String(message);
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOP_BRIDGE', payload: msg }));
+      } catch(e){}
+    };
+  } catch(e){}
+})(); true;`,
+    []
+  );
+  const injectedAllWithFcmAndCoopJs = useMemo(
+    () => `${injectedAllWithFcmJs}\n${injectedCoopBridgeJs}`,
+    [injectedAllWithFcmJs, injectedCoopBridgeJs]
+  );
+
+  // Listen for push click events and forward to web
+  React.useEffect(() => {
+    let off: any;
+    (async () => {
+      try {
+        const { eventBus } = await import('@/lib/event-bus');
+        off = eventBus.on('PUSH_CLICKED', ({ payload }) => {
+          const js = `(function(){ try{ if (typeof window.pushTypeHandler==='function'){ window.pushTypeHandler(${JSON.stringify(
+            payload
+          )}); } }catch(e){} })(); true;`;
+          webviewRef.current?.injectJavaScript(js);
+        });
+      } catch {}
+    })();
+    return () => { try { off && off(); } catch {} };
+  }, []);
 
   if (!webviewUrl) {
     return (
@@ -85,7 +126,7 @@ export default function WebviewScreen() {
           router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
         }}
         geolocationEnabled
-        injectedJavaScriptBeforeContentLoaded={injectedAllWithFcmJs}
+        injectedJavaScriptBeforeContentLoaded={injectedAllWithFcmAndCoopJs}
         onMessage={async (event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data || '{}');
@@ -119,6 +160,86 @@ export default function WebviewScreen() {
                 webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, error: { message: (e?.message) || 'FCM token failed' } })}); true;`);
               }
               return;
+            } else if (data.type === 'REQUEST_SHARE_KAKAO') {
+              const shareUrl = String(data.url || '');
+              try {
+                const tryUrl = `kakaotalk://send?text=${encodeURIComponent(shareUrl)}`;
+                Linking.openURL(tryUrl).catch(() => {
+                  // fallback: system share sheet
+                  import('react-native').then(({ Share }) => {
+                    Share.share({ message: shareUrl });
+                  });
+                });
+              } catch {
+                import('react-native').then(({ Share }) => {
+                  Share.share({ message: shareUrl });
+                });
+              }
+              return;
+            } else if (data.type === 'COOP_BRIDGE') {
+              let req: any = {};
+              try { req = JSON.parse(String(data.payload || '{}')); } catch {}
+              const messageId = String(req?.messageId ?? '');
+              const reqType = String(req?.type ?? '');
+              const reqData = req?.data ?? {};
+              const sendCoopResponse = (respObj: any) => {
+                const jsonStr = JSON.stringify(respObj);
+                const js = `(function(){ try{ if (window.AppInterfaceForCoop && typeof window.AppInterfaceForCoop.onmessage==='function'){ window.AppInterfaceForCoop.onmessage({ data: ${JSON.stringify(
+                  jsonStr
+                )} }); } } catch(e){} })(); true;`;
+                webviewRef.current?.injectJavaScript(js);
+              };
+              if (reqType === 'REQ_DATA_CONTACT_INFO') {
+                const Contacts = await import('expo-contacts');
+                const perm = await Contacts.requestPermissionsAsync();
+                if (perm.status !== 'granted') {
+                  sendCoopResponse({
+                    header: {
+                      type: 'REQ_DATA_CONTACT_INFO',
+                      messageId,
+                      data: reqData,
+                      resultCode: 'PERMISSION_DENIED',
+                      resultComment: '연락처 접근 권한이 거부되었습니다.',
+                    },
+                    body: { result: {} },
+                  });
+                  return;
+                }
+                const internalId = `coop-${messageId || Date.now()}`;
+                router.push({ pathname: '/contact-pick', params: { id: internalId } });
+                const { eventBus } = await import('@/lib/event-bus');
+                const off = eventBus.on('CONTACT_PICKED', (p) => {
+                  if (p.id !== internalId) return;
+                  off();
+                  sendCoopResponse({
+                    header: {
+                      type: 'REQ_DATA_CONTACT_INFO',
+                      messageId,
+                      data: reqData,
+                      resultCode: 'SUCCESS',
+                      resultComment: '연락처 정보 데이터 요청, 성공',
+                    },
+                    body: {
+                      result: {
+                        contactInfo: { name: p.name, phone: p.number },
+                      },
+                    },
+                  });
+                });
+                return;
+              } else {
+                sendCoopResponse({
+                  header: {
+                    type: reqType || 'unknown message type',
+                    messageId,
+                    data: reqData || {},
+                    resultCode: 'UNKNOWN_MESSAGE_TYPE',
+                    resultComment: '알 수 없는 메시지 타입 입니다.',
+                  },
+                  body: { result: {} },
+                });
+                return;
+              }
             } else if (data.type === 'SCAN_BARCODE') {
               const id = String(data.id);
               router.push({ pathname: '/barcode-scan', params: { id } });
