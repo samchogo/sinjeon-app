@@ -44,19 +44,24 @@ const PACKAGES = [
   'com.lguplus.smartotp',
 ];
 
-function ensureQueries(manifest) {
-  if (!manifest.manifest) return manifest;
-  const app = manifest.manifest;
-  app.queries = app.queries || [{}];
-  const queries = app.queries[0];
-  queries.package = queries.package || [];
-  const existing = new Set((queries.package || []).map((p) => p.$ && p.$.name));
+function ensureQueries(modResults) {
+  if (!modResults.manifest) return modResults;
+  const root = modResults.manifest;
+  // Ensure <queries> array exists
+  root.queries = root.queries || [{}];
+  const queriesEl = root.queries[0];
+  // Ensure <package> list exists
+  queriesEl.package = queriesEl.package || [];
+  // Collect existing values from either name or android:name to be robust
+  const existing = new Set(
+    (queriesEl.package || []).map((p) => (p.$ && (p.$['android:name'] || p.$.name)) || '')
+  );
   PACKAGES.forEach((pkg) => {
     if (!existing.has(pkg)) {
-      queries.package.push({ $: { name: pkg } });
+      queriesEl.package.push({ $: { 'android:name': pkg } });
     }
   });
-  return manifest;
+  return modResults;
 }
 
 module.exports = function withAndroidQueries(config) {

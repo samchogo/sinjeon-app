@@ -2,11 +2,16 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+
+// Keep splash on screen for testing (temporary). Call as early as possible.
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
+SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -17,6 +22,11 @@ export default function RootLayout() {
   const router = useRouter();
 
   React.useEffect(() => {
+    // Hide splash after a delay (e.g., 3 seconds) for testing
+    const timer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 3000);
+
     const openWeb = (u?: string | null) => {
       if (!u) return;
       try {
@@ -39,7 +49,7 @@ export default function RootLayout() {
 
     const sub = Linking.addEventListener('url', ({ url }) => openWeb(url));
     Linking.getInitialURL().then((url) => openWeb(url));
-    return () => sub.remove();
+    return () => { clearTimeout(timer); sub.remove(); };
   }, [router]);
 
   return (

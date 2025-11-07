@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback } from 'react';
@@ -28,6 +29,7 @@ export default function WebviewViewScreen() {
     } catch(e){}
   })(); true;`;
   const injectedKakaoShareJs = `(() => { try { window.requestShareKakao = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
+  const injectedAppVersionJs = `(() => { try { if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {}; window.requestAppVersion = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000); window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); }); }; window.__onNativeAppVersion = function(payload){ try { const { id, version, error } = payload || {}; const cb = window.__RN_APPVER_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (!error) { if (cb.resolve) cb.resolve(version ?? null); if (cb.success) cb.success(version ?? null); } else { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_APPVER_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
 
   const { hideHeader, resolvedUrl } = React.useMemo(() => {
     let hide = noHeader === '1';
@@ -127,7 +129,7 @@ export default function WebviewViewScreen() {
             if (schemes.some((s) => targetUrl.startsWith(s))) { Linking.openURL(targetUrl).catch(() => {}); return; }
           }
         }}
-        injectedJavaScriptBeforeContentLoaded={`${injectedTitleObserver}\n${injectedKakaoShareJs}`}
+        injectedJavaScriptBeforeContentLoaded={`${injectedTitleObserver}\n${injectedKakaoShareJs}\n${injectedAppVersionJs}`}
         onMessage={(evt) => {
           try {
             const data = JSON.parse(evt.nativeEvent.data || '{}');
@@ -141,6 +143,23 @@ export default function WebviewViewScreen() {
                   });
                 });
               } catch {}
+              return;
+            }
+            if (data.type === 'REQUEST_APP_VERSION') {
+              const id = String(data.id);
+              (async () => {
+                try {
+                  let version = null as null | string;
+                  try {
+                    const v = (Constants as any)?.expoConfig?.version;
+                    version = (typeof v === 'string' && v.length > 0) ? v : null;
+                  } catch {}
+                  const payload = { id, version };
+                  webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify(payload)}); true;`);
+                } catch (e: any) {
+                  webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify({ id, error: { message: e?.message || 'APP_VERSION failed' } })}); true;`);
+                }
+              })();
               return;
             }
             if (data.type === 'APP_TO_COOP_EVENT_RESPONSE') {

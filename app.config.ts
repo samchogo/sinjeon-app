@@ -34,9 +34,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: 'sulbing-app',
+    name: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
     slug: 'sulbing-app',
-    version: '1.0.0',
+    version: '1.0.1',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
     scheme: 'sulbingapp',
@@ -46,7 +46,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       bundleIdentifier: IOS_BUNDLE_ID,
       supportsTablet: true,
       googleServicesFile: IOS_GOOGLE_SERVICES_FILE,
+      buildNumber: '1002',
       infoPlist: {
+        CFBundleDisplayName: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
         NSCameraUsageDescription: '바코드 스캔을 위해 카메라 접근 권한이 필요합니다.',
         NSContactsUsageDescription: '주소록에서 연락처를 선택하기 위해 접근 권한이 필요합니다.',
         LSApplicationQueriesSchemes: [
@@ -99,6 +101,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       package: ANDROID_PACKAGE,
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
+      versionCode: 1002,
       notification: {
         icon: './assets/images/notification-icon.png',
         color: '#863534',
@@ -122,13 +125,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         'expo-splash-screen',
         {
           image: './assets/images/splash-image.png',
-          imageWidth: 220,
+          imageWidth: 180,
           resizeMode: 'contain',
           backgroundColor: '#863534',
           dark: { backgroundColor: '#863534' },
         },
       ],
-      'expo-barcode-scanner',
       './plugins/android-queries-plugin',
     ],
     experiments: {

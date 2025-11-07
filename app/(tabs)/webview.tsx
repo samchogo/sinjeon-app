@@ -22,9 +22,10 @@ export default function WebviewScreen() {
   const injectedCombinedJs = useMemo(() => `${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedScanJs}`, [injectedGeolocationJs, injectedWindowOpenJs, injectedScanJs]);
   const injectedContactsJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_CONTACT_CALLBACKS) window.__RN_CONTACT_CALLBACKS = {};\n    window.requestContactPick = function(success, error){\n      const id = String(Date.now());\n      window.__RN_CONTACT_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_CONTACT', id }));\n    };\n    window.__onNativeContact = function(payload){\n      try {\n        const { id, name, number, error } = payload || {};\n        const cb = window.__RN_CONTACT_CALLBACKS[id];\n        if (!cb) return;\n        if (name && number && cb.success) cb.success({ name, number });\n        else if (error && cb.error) cb.error(error);\n        delete window.__RN_CONTACT_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
   const injectedAllJs = useMemo(() => `${injectedCombinedJs}\n${injectedContactsJs}`, [injectedCombinedJs, injectedContactsJs]);
-  const injectedFcmJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {};\n    window.requestFcmToken = function(success, error){\n      const id = String(Date.now());\n      window.__RN_FCM_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));\n    };\n    window.__onNativeFcmToken = function(payload){\n      try {\n        const { id, token, error } = payload || {};\n        const cb = window.__RN_FCM_CALLBACKS[id];\n        if (!cb) return;\n        if (token && cb.success) cb.success({ token }); else if (error && cb.error) cb.error(error);\n        delete window.__RN_FCM_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
+  const injectedFcmJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {};\n    window.requestFcmToken = function(success, error){\n      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);\n      const entry = { success: null, error: null, resolve: null, reject: null, t: null };\n      if (typeof success === 'function' || typeof error === 'function') {\n        entry.success = typeof success === 'function' ? success : null;\n        entry.error = typeof error === 'function' ? error : null;\n        window.__RN_FCM_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));\n        return;\n      }\n      return new Promise((resolve, reject) => {\n        entry.resolve = resolve; entry.reject = reject;\n        entry.t = setTimeout(() => {\n          delete window.__RN_FCM_CALLBACKS[id];\n          reject(new Error('FCM timeout'));\n        }, 15000);\n        window.__RN_FCM_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));\n      });\n    };\n    window.__onNativeFcmToken = function(payload){\n      try {\n        const { id, token, error } = payload || {};\n        const cb = window.__RN_FCM_CALLBACKS[id];\n        if (!cb) return;\n        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }\n        if (token) {\n          if (cb.resolve) cb.resolve(token);\n          if (cb.success) cb.success({ token });\n        } else if (error) {\n          if (cb.reject) cb.reject(error);\n          if (cb.error) cb.error(error);\n        }\n        delete window.__RN_FCM_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
   const injectedKakaoShareJs = useMemo(() => `(() => {\n  try {\n    window.requestShareKakao = function(url){\n      try {\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') }));\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
-  const injectedAllWithFcmJs = useMemo(() => `${injectedAllJs}\n${injectedFcmJs}\n${injectedKakaoShareJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs]);
+  const injectedAppVersionJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {};\n    // Returns a string version or null\n    window.requestAppVersion = function(success, error){\n      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);\n      const entry = { success: null, error: null, resolve: null, reject: null, t: null };\n      if (typeof success === 'function' || typeof error === 'function') {\n        entry.success = typeof success === 'function' ? success : null;\n        entry.error = typeof error === 'function' ? error : null;\n        window.__RN_APPVER_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id }));\n        return;\n      }\n      return new Promise((resolve, reject) => {\n        entry.resolve = resolve; entry.reject = reject;\n        entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000);\n        window.__RN_APPVER_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id }));\n      });\n    };\n    window.__onNativeAppVersion = function(payload){\n      try {\n        const { id, version, error } = payload || {};\n        const cb = window.__RN_APPVER_CALLBACKS[id];\n        if (!cb) return;\n        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }\n        if (!error) {\n          if (cb.resolve) cb.resolve(version ?? null);\n          if (cb.success) cb.success(version ?? null);\n        } else {\n          if (cb.reject) cb.reject(error);\n          if (cb.error) cb.error(error);\n        }\n        delete window.__RN_APPVER_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
+  const injectedAllWithFcmJs = useMemo(() => `${injectedAllJs}\n${injectedFcmJs}\n${injectedKakaoShareJs}\n${injectedAppVersionJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs, injectedAppVersionJs]);
   const injectedCoopBridgeJs = useMemo(
     () =>
       `(() => {
@@ -149,12 +150,28 @@ export default function WebviewScreen() {
             } else if (data.type === 'REQUEST_FCM_TOKEN') {
               const id = String(data.id);
               try {
-                if (Platform.OS === 'android' && Platform.Version >= 33) {
-                  await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-                }
                 const messaging = (await import('@react-native-firebase/messaging')).default;
-                await messaging().requestPermission();
-                const token = await messaging().getToken();
+
+                if (Platform.OS === 'ios') {
+                  // iOS: do not request permission here; just try to fetch token without prompting
+                  await messaging().setAutoInitEnabled(true);
+                  const token = await messaging().getToken();
+                  webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token })}); true;`);
+                  return;
+                }
+
+                // Android: try getToken first without prompting, then request notification permission only if needed (API 33+)
+                await messaging().setAutoInitEnabled(true);
+                let token = await messaging().getToken();
+                if (!token && Platform.OS === 'android' && Platform.Version >= 33) {
+                  const has = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+                  if (!has) {
+                    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+                  }
+                  try { await messaging().deleteToken(); } catch {}
+                  await new Promise((r) => setTimeout(r, 300));
+                  token = await messaging().getToken();
+                }
                 webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token })}); true;`);
               } catch (e: any) {
                 webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, error: { message: (e?.message) || 'FCM token failed' } })}); true;`);
@@ -174,6 +191,20 @@ export default function WebviewScreen() {
                 import('react-native').then(({ Share }) => {
                   Share.share({ message: shareUrl });
                 });
+              }
+              return;
+            } else if (data.type === 'REQUEST_APP_VERSION') {
+              const id = String(data.id);
+              try {
+                let version: string | null = null;
+                try {
+                  const v = (Constants as any)?.expoConfig?.version;
+                  version = (typeof v === 'string' && v.length > 0) ? v : null;
+                } catch {}
+                const payload = { id, version };
+                webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify(payload)}); true;`);
+              } catch (e: any) {
+                webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify({ id, error: { message: e?.message || 'APP_VERSION failed' } })}); true;`);
               }
               return;
             } else if (data.type === 'COOP_BRIDGE') {
