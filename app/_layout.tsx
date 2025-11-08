@@ -3,6 +3,7 @@ import messaging from '@react-native-firebase/messaging';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
+import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -48,48 +49,8 @@ export default function RootLayout() {
     })();
   }, []);
 
-  // Request system notification permission at app start (shows OS-native prompt on first launch)
   React.useEffect(() => {
-    (async () => {
-      try {
-        let shouldAsk = false;
-        if (Platform.OS === 'android' && Platform.Version >= 33) {
-          try {
-            const has = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-            shouldAsk = !has;
-          } catch {}
-        } else if (Platform.OS === 'ios') {
-          try {
-            // If already authorized, skip; else request
-            const status = await messaging().hasPermission?.();
-            shouldAsk = !(typeof status === 'number' && status > 0);
-          } catch {}
-        }
-        if (shouldAsk) {
-          try {
-            if (Platform.OS === 'ios') {
-              await messaging().requestPermission();
-              try { await messaging().registerDeviceForRemoteMessages(); } catch {}
-            } else if (Platform.OS === 'android' && Platform.Version >= 33) {
-              await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-            }
-            // eslint-disable-next-line no-console
-            console.log('[PUSH][permission] requested (system prompt)');
-          } catch (e: any) {
-            // eslint-disable-next-line no-console
-            console.log('[PUSH][permission][err]', e?.message);
-          }
-        }
-      } catch {}
-    })();
-  }, []);
-
-  React.useEffect(() => {
-    // Hide splash after a delay (e.g., 3 seconds) for testing
-    const timer = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 1000);
-
+    let cancelled = false;
     const openWeb = (u?: string | null) => {
       if (!u) return;
       try {
@@ -119,7 +80,7 @@ export default function RootLayout() {
             let target = q?.url ? String(q.url) : '';
             if (target && !/^https?:\/\//i.test(target)) {
               const base = String((Constants.expoConfig?.extra as any)?.WEBVIEW_URL || '');
-              const baseTrim = base.replace(/\/+$/,'');
+              const baseTrim = base.replace(/\/+$/, '');
               const rel = target.replace(/^\/+/, '');
               target = `${baseTrim}/${rel}`;
             }
@@ -131,9 +92,49 @@ export default function RootLayout() {
       } catch {}
     };
 
+    (async () => {
+      // keep splash briefly for UX consistency, then hide
+      await new Promise((r) => setTimeout(r, 1000));
+      try { await SplashScreen.hideAsync(); } catch {}
+
+      // After splash: request PUSH then LOCATION sequentially
+      try {
+        if (Platform.OS === 'android') {
+          if (Platform.Version >= 33) {
+            const has = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => false);
+            if (!has) {
+              await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).catch(() => null);
+            }
+          }
+        } else {
+          try {
+            await messaging().setAutoInitEnabled(true);
+            await messaging().requestPermission().catch(() => undefined);
+            try { await messaging().registerDeviceForRemoteMessages(); } catch {}
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.log('[PUSH][iOS] request error', (e as any)?.message);
+          }
+        }
+      } catch {}
+
+      // Small delay to avoid overlapping OS dialogs
+      await new Promise((r) => setTimeout(r, 400));
+
+      try {
+        const fg = await Location.getForegroundPermissionsAsync();
+        if (fg.status !== 'granted') {
+          await Location.requestForegroundPermissionsAsync().catch(() => undefined);
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.log('[LOCATION][perm] error', (e as any)?.message);
+      }
+    })();
+
     const sub = Linking.addEventListener('url', ({ url }) => openWeb(url));
     Linking.getInitialURL().then((url) => openWeb(url));
-    return () => { clearTimeout(timer); sub.remove(); };
+    return () => { cancelled = true; sub.remove(); };
   }, [router]);
 
   return (
