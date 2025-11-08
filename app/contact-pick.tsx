@@ -1,3 +1,5 @@
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { eventBus } from '@/lib/event-bus';
 import * as Contacts from 'expo-contacts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -8,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function ContactPickScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
+  const colorScheme = useColorScheme();
   const [loading, setLoading] = React.useState(true);
   const [items, setItems] = React.useState<Contacts.Contact[]>([]);
   const [q, setQ] = React.useState('');
@@ -52,7 +55,8 @@ export default function ContactPickScreen() {
           value={q}
           onChangeText={setQ}
           placeholder="이름 또는 번호 검색"
-          style={styles.search}
+          placeholderTextColor={colorScheme === 'dark' ? '#9AA0A6' : '#9E9E9E'}
+          style={[styles.search, { color: colorScheme === 'dark' ? Colors.dark.text : Colors.light.text }]}
         />
       </View>
       {loading ? (

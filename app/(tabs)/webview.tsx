@@ -20,7 +20,56 @@ export default function WebviewScreen() {
   const router = useRouter();
   const isReadyRef = React.useRef(false);
   const pendingPushRef = React.useRef<any[]>([]);
-  const injectedGeolocationJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }\n    navigator.geolocation.getCurrentPosition = function(success, error) {\n      const id = String(Date.now());\n      window.__RN_LOCATION_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id }));\n    };\n    window.__onNativeLocation = function(payload) {\n      try {\n        const { id, coords, error } = payload || {};\n        const cb = window.__RN_LOCATION_CALLBACKS[id];\n        if (!cb) return;\n        if (coords && cb.success) cb.success({ coords });\n        else if (error && cb.error) cb.error(error);\n        delete window.__RN_LOCATION_CALLBACKS[id];\n      } catch (e) {}\n    };\n  } catch (e) {}\n})(); true;`, []);
+  const injectedGeolocationJs = useMemo(() => `(() => {
+  try {
+    if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }
+    // getCurrentPosition -> native
+    navigator.geolocation.getCurrentPosition = function(success, error) {
+      try {
+        const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+        window.__RN_LOCATION_CALLBACKS[id] = { success, error };
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id }));
+      } catch(e){}
+    };
+    // watchPosition -> emulate with one-shot native + interval polling disabled (send once)
+    navigator.geolocation.watchPosition = function(success, error) {
+      try {
+        const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+        window.__RN_LOCATION_CALLBACKS[id] = { success, error };
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id }));
+        return id;
+      } catch(e){ return null; }
+    };
+    navigator.geolocation.clearWatch = function(id) {
+      try { if (id && window.__RN_LOCATION_CALLBACKS[id]) delete window.__RN_LOCATION_CALLBACKS[id]; } catch(e){}
+    };
+    // permission API shim to avoid UI that asks again in web layer
+    try {
+      const origPerm = navigator.permissions && navigator.permissions.query;
+      if (origPerm) {
+        navigator.permissions.query = function(desc){
+          try {
+            if (desc && (desc.name === 'geolocation' || desc.name === 'geolocation.')) {
+              return Promise.resolve({ state: 'granted' });
+            }
+          } catch(e){}
+          return origPerm.apply(this, arguments);
+        };
+      }
+    } catch(e){}
+    // native callback
+    window.__onNativeLocation = function(payload) {
+      try {
+        const { id, coords, error } = payload || {};
+        const cb = window.__RN_LOCATION_CALLBACKS[id];
+        if (!cb) return;
+        if (coords && cb.success) cb.success({ coords });
+        else if (error && cb.error) cb.error(error);
+        delete window.__RN_LOCATION_CALLBACKS[id];
+      } catch (e) {}
+    };
+  } catch (e) {}
+})(); true;`, []);
 
   const injectedWindowOpenJs = useMemo(() => `(() => {\n  try {\n    const sendOpen = (u,n,s) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_WINDOW', url: u, name: n || '', specs: s || '' })); } catch(e){}\n    };\n    const sendOpenBlank = (u) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_TARGET_BLANK', url: u })); } catch(e){}\n    };\n    const origOpen = window.open;\n    window.open = function(url, name, specs) {\n      if (url) sendOpen(url, name, specs);\n      return null;\n    };\n    document.addEventListener('click', function(e){\n      const a = e.target && e.target.closest ? e.target.closest('a[target=\"_blank\"]') : null;\n      if (a && a.href) {\n        if (/^https?:\\/\\//i.test(a.href)) { e.preventDefault(); sendOpenBlank(a.href); }\n      }\n    }, true);\n  } catch(e){}\n})(); true;`, []);
 
@@ -90,6 +139,15 @@ export default function WebviewScreen() {
     window.requestShareKakao = function(url){
       try {
         window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') }));
+      } catch(e){}
+    };
+  } catch(e){}
+})(); true;`, []);
+  const injectedOpenExternalJs = useMemo(() => `(() => {
+  try {
+    window.openExternalLink = function(url){
+      try {
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_EXTERNAL_LINK', url: String(url||'') }));
       } catch(e){}
     };
   } catch(e){}
@@ -251,6 +309,7 @@ export default function WebviewScreen() {
 ${injectedFcmJs}
 ${injectedAllJs}
 ${injectedKakaoShareJs}
+${injectedOpenExternalJs}
 ${injectedAppVersionJs}
 ${injectedOpenSettingsJs}
 ${injectedRequestWindowJs}
@@ -350,6 +409,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             webviewRef.current?.injectJavaScript(injectedAppVersionJs);
             webviewRef.current?.injectJavaScript(injectedCoopBridgeJs);
             webviewRef.current?.injectJavaScript(injectedKakaoShareJs);
+            webviewRef.current?.injectJavaScript(injectedOpenExternalJs);
             webviewRef.current?.injectJavaScript(injectedOpenSettingsJs);
             webviewRef.current?.injectJavaScript(injectedRequestWindowJs);
             webviewRef.current?.injectJavaScript(injectedCloseWindowJs);
@@ -408,7 +468,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           const hide = /[?&]__no_header=1\b/.test(targetUrl);
           router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
         }}
-        geolocationEnabled
+        geolocationEnabled={false}
         injectedJavaScriptBeforeContentLoaded={injectedAllWithFcmAndCoopJs}
         onMessage={async (event) => {
           try {
@@ -547,6 +607,10 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               } catch {
                 Share.share({ message: shareUrl });
               }
+              return;
+            } else if (data.type === 'OPEN_EXTERNAL_LINK' && data.url) {
+              const u = String(data.url);
+              Linking.openURL(u).catch(() => {});
               return;
             } else if (data.type === 'REQUEST_APP_VERSION') {
               const id = String(data.id);

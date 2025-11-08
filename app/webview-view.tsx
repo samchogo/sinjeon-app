@@ -35,7 +35,15 @@ export default function WebviewViewScreen() {
       setTimeout(sendTitle, 0);
     } catch(e){}
   })(); true;`;
-  const injectedGeolocationJs = `(() => { try { if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; } navigator.geolocation.getCurrentPosition = function(success, error){ const id = String(Date.now()); window.__RN_LOCATION_CALLBACKS[id] = { success, error }; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id })); }; window.__onNativeLocation = function(payload){ try { const { id, coords, error } = payload || {}; const cb = window.__RN_LOCATION_CALLBACKS[id]; if (!cb) return; if (coords && cb.success) cb.success({ coords }); else if (error && cb.error) cb.error(error); delete window.__RN_LOCATION_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
+  const injectedGeolocationJs = `(() => { try { if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; } 
+    // getCurrentPosition -> native
+    navigator.geolocation.getCurrentPosition = function(success, error){ try { const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); window.__RN_LOCATION_CALLBACKS[id] = { success, error }; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id })); } catch(e){} };
+    // watchPosition -> emulate one-shot
+    navigator.geolocation.watchPosition = function(success, error){ try { const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); window.__RN_LOCATION_CALLBACKS[id] = { success, error }; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id })); return id; } catch(e){ return null; } };
+    navigator.geolocation.clearWatch = function(id){ try { if (id && window.__RN_LOCATION_CALLBACKS[id]) delete window.__RN_LOCATION_CALLBACKS[id]; } catch(e){} };
+    // permissions API shim
+    try { var op = navigator.permissions && navigator.permissions.query; if (op) { navigator.permissions.query = function(d){ try { if (d && d.name==='geolocation') { return Promise.resolve({ state: 'granted' }); } } catch(e){} return op.apply(this, arguments); }; } } catch(e){}
+    window.__onNativeLocation = function(payload){ try { const { id, coords, error } = payload || {}; const cb = window.__RN_LOCATION_CALLBACKS[id]; if (!cb) return; if (coords && cb.success) cb.success({ coords }); else if (error && cb.error) cb.error(error); delete window.__RN_LOCATION_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
   const injectedWindowOpenJs = `(() => {
     try {
       const sendOpen = (u,n,s) => {
@@ -58,6 +66,7 @@ export default function WebviewViewScreen() {
     } catch(e){}
   })(); true;`;
   const injectedKakaoShareJs = `(() => { try { window.requestShareKakao = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
+  const injectedOpenExternalJs = `(() => { try { window.openExternalLink = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_EXTERNAL_LINK', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
   const injectedFcmJs = `(() => { try { if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {}; if (!window.__FB_BLOCK_CTL) window.__FB_BLOCK_CTL = { on: false, t: null }; window.requestFcmToken = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; try { window.__FB_BLOCK_CTL.on = true; if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} } window.__FB_BLOCK_CTL.t = setTimeout(function(){ try { window.__FB_BLOCK_CTL.on = false; } catch(_){} }, 15000); } catch(_){} if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_FCM_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_FCM_CALLBACKS[id]; reject(new Error('FCM timeout')); }, 15000); window.__RN_FCM_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id })); }); }; window.__onNativeFcmToken = function(payload){ try { const { id, token, osTypeCd, error } = payload || {}; const cb = window.__RN_FCM_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (token) { var result = { token: token, osTypeCd: osTypeCd || ((/iPad|iPhone|iPod/i.test(navigator.userAgent)) ? 'IOS' : 'ANDROID') }; if (cb.resolve) cb.resolve(result); if (cb.success) cb.success(result); } else if (error) { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_FCM_CALLBACKS[id]; } catch(e){} finally { try { if (window.__FB_BLOCK_CTL) { window.__FB_BLOCK_CTL.on = false; if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} } } } catch(_){} } }; } catch(e){} })(); true;`;
   const injectedAppVersionJs = `(() => { try { if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {}; window.requestAppVersion = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000); window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); }); }; window.__onNativeAppVersion = function(payload){ try { const { id, version, error } = payload || {}; const cb = window.__RN_APPVER_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (!error) { if (cb.resolve) cb.resolve(version ?? null); if (cb.success) cb.success(version ?? null); } else { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_APPVER_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
   const injectedCloseWindowJs = `(() => { try { const __origClose = window.close; window.close = function(){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW' })); } catch(e){} return undefined; }; window.requestWindowClose = function(){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW' })); } catch(e){} return true; }; } catch(e){} })(); true;`;
@@ -205,6 +214,7 @@ export default function WebviewViewScreen() {
             webviewRef.current?.injectJavaScript(injectedAppVersionJs);
             webviewRef.current?.injectJavaScript(injectedCoopBridgeJs);
             webviewRef.current?.injectJavaScript(injectedKakaoShareJs);
+            webviewRef.current?.injectJavaScript(injectedOpenExternalJs);
             webviewRef.current?.injectJavaScript(injectedOpenSettingsJs);
             // drain any pending push payloads
             try {
@@ -224,6 +234,7 @@ export default function WebviewViewScreen() {
         javaScriptEnabled
         domStorageEnabled
         thirdPartyCookiesEnabled
+        geolocationEnabled={false}
         originWhitelist={['http://*', 'https://*', 'sulbingapp://*', 'intent://*']}
         onShouldStartLoadWithRequest={(req) => {
           const u = req?.url || '';
@@ -241,7 +252,7 @@ export default function WebviewViewScreen() {
             if (schemes.some((s) => targetUrl.startsWith(s))) { Linking.openURL(targetUrl).catch(() => {}); return; }
           }
         }}
-        injectedJavaScriptBeforeContentLoaded={`${injectedRequestWindowJs}\n${injectedCloseWindowJs}\n${injectedFcmJs}\n${injectedCoopBridgeJs}\n${injectedTitleObserver}\n${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedKakaoShareJs}\n${injectedAppVersionJs}\n${injectedOpenSettingsJs}\n${injectedBlockFirebaseJs}`}
+        injectedJavaScriptBeforeContentLoaded={`${injectedRequestWindowJs}\n${injectedCloseWindowJs}\n${injectedFcmJs}\n${injectedCoopBridgeJs}\n${injectedTitleObserver}\n${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedKakaoShareJs}\n${injectedOpenExternalJs}\n${injectedAppVersionJs}\n${injectedOpenSettingsJs}\n${injectedBlockFirebaseJs}`}
         onMessage={(evt) => {
           try {
             const data = JSON.parse(evt.nativeEvent.data || '{}');
@@ -288,6 +299,11 @@ export default function WebviewViewScreen() {
                   webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify({ id, error: { message: e?.message || 'APP_VERSION failed' } })}); true;`);
                 }
               })();
+              return;
+            }
+            if (data.type === 'OPEN_EXTERNAL_LINK' && data.url) {
+              const u = String(data.url);
+              Linking.openURL(u).catch(() => {});
               return;
             }
             if (data.type === 'REQUEST_CLOSE_WINDOW') {
