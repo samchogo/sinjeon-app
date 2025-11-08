@@ -29,8 +29,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const WEBVIEW_URL =
     process.env.EXPO_PUBLIC_WEBVIEW_URL ??
     (APP_VARIANT === 'prod'
-      ? 'https://sapp.sulbing.com/'
-      : 'http://192.168.103.20:5137');
+      ? 'https://sapp.sulbing.com'
+      : 'https://dev.d2htrwala9rb4i.amplifyapp.com');
 
   return {
     ...config,
