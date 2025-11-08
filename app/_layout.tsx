@@ -7,6 +7,7 @@ import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
+import { PermissionsAndroid, Platform } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -42,6 +43,42 @@ export default function RootLayout() {
           // fallback read without crashing
           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
           (messaging() as any).isDeviceRegisteredForRemoteMessages;
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // Request system notification permission at app start (shows OS-native prompt on first launch)
+  React.useEffect(() => {
+    (async () => {
+      try {
+        let shouldAsk = false;
+        if (Platform.OS === 'android' && Platform.Version >= 33) {
+          try {
+            const has = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+            shouldAsk = !has;
+          } catch {}
+        } else if (Platform.OS === 'ios') {
+          try {
+            // If already authorized, skip; else request
+            const status = await messaging().hasPermission?.();
+            shouldAsk = !(typeof status === 'number' && status > 0);
+          } catch {}
+        }
+        if (shouldAsk) {
+          try {
+            if (Platform.OS === 'ios') {
+              await messaging().requestPermission();
+              try { await messaging().registerDeviceForRemoteMessages(); } catch {}
+            } else if (Platform.OS === 'android' && Platform.Version >= 33) {
+              await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+            }
+            // eslint-disable-next-line no-console
+            console.log('[PUSH][permission] requested (system prompt)');
+          } catch (e: any) {
+            // eslint-disable-next-line no-console
+            console.log('[PUSH][permission][err]', e?.message);
+          }
         }
       } catch {}
     })();
