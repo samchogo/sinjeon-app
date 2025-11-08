@@ -30,7 +30,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     process.env.EXPO_PUBLIC_WEBVIEW_URL ??
     (APP_VARIANT === 'prod'
       ? 'https://sapp.sulbing.com/'
-      : 'https://namp.me/test/react');
+      : 'http://192.168.103.20:5137/test');
 
   return {
     ...config,
@@ -47,10 +47,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       supportsTablet: true,
       googleServicesFile: IOS_GOOGLE_SERVICES_FILE,
       buildNumber: '1002',
+      entitlements: { 'aps-environment': 'development' },
       infoPlist: {
         CFBundleDisplayName: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
         NSCameraUsageDescription: '바코드 스캔을 위해 카메라 접근 권한이 필요합니다.',
         NSContactsUsageDescription: '주소록에서 연락처를 선택하기 위해 접근 권한이 필요합니다.',
+        NSLocationWhenInUseUsageDescription: '서비스 제공을 위해 앱 사용 중 위치 접근 권한이 필요합니다.',
+        ITSAppUsesNonExemptEncryption: false,
         LSApplicationQueriesSchemes: [
           'ispmobile',
           'kb-acp',
@@ -121,6 +124,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       'expo-router',
+             '@react-native-firebase/app',
       [
         'expo-splash-screen',
         {
@@ -131,6 +135,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           dark: { backgroundColor: '#863534' },
         },
       ],
+      [
+        'expo-build-properties',
+        { ios: { newArchEnabled: true, deploymentTarget: '15.1', useModularHeaders: true } },
+      ],
+      './plugins/ios-modular-headers',
+      './plugins/ios-nonmodular-fix',
       './plugins/android-queries-plugin',
     ],
     experiments: {

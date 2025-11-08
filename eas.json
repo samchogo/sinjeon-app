@@ -1,0 +1,26 @@
+{
+  "cli": {
+    "version": ">= 16.26.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { 
+        "APP_VARIANT": "dev",
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+       }
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": { "APP_VARIANT": "prod" }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

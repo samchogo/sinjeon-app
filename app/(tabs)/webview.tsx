@@ -4,7 +4,7 @@ import * as Linking from 'expo-linking';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo } from 'react';
-import { BackHandler, PermissionsAndroid, Platform, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, PermissionsAndroid, Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
@@ -22,10 +22,217 @@ export default function WebviewScreen() {
   const injectedCombinedJs = useMemo(() => `${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedScanJs}`, [injectedGeolocationJs, injectedWindowOpenJs, injectedScanJs]);
   const injectedContactsJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_CONTACT_CALLBACKS) window.__RN_CONTACT_CALLBACKS = {};\n    window.requestContactPick = function(success, error){\n      const id = String(Date.now());\n      window.__RN_CONTACT_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'REQUEST_CONTACT', id }));\n    };\n    window.__onNativeContact = function(payload){\n      try {\n        const { id, name, number, error } = payload || {};\n        const cb = window.__RN_CONTACT_CALLBACKS[id];\n        if (!cb) return;\n        if (name && number && cb.success) cb.success({ name, number });\n        else if (error && cb.error) cb.error(error);\n        delete window.__RN_CONTACT_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
   const injectedAllJs = useMemo(() => `${injectedCombinedJs}\n${injectedContactsJs}`, [injectedCombinedJs, injectedContactsJs]);
-  const injectedFcmJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {};\n    window.requestFcmToken = function(success, error){\n      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);\n      const entry = { success: null, error: null, resolve: null, reject: null, t: null };\n      if (typeof success === 'function' || typeof error === 'function') {\n        entry.success = typeof success === 'function' ? success : null;\n        entry.error = typeof error === 'function' ? error : null;\n        window.__RN_FCM_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));\n        return;\n      }\n      return new Promise((resolve, reject) => {\n        entry.resolve = resolve; entry.reject = reject;\n        entry.t = setTimeout(() => {\n          delete window.__RN_FCM_CALLBACKS[id];\n          reject(new Error('FCM timeout'));\n        }, 15000);\n        window.__RN_FCM_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));\n      });\n    };\n    window.__onNativeFcmToken = function(payload){\n      try {\n        const { id, token, error } = payload || {};\n        const cb = window.__RN_FCM_CALLBACKS[id];\n        if (!cb) return;\n        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }\n        if (token) {\n          if (cb.resolve) cb.resolve(token);\n          if (cb.success) cb.success({ token });\n        } else if (error) {\n          if (cb.reject) cb.reject(error);\n          if (cb.error) cb.error(error);\n        }\n        delete window.__RN_FCM_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
-  const injectedKakaoShareJs = useMemo(() => `(() => {\n  try {\n    window.requestShareKakao = function(url){\n      try {\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') }));\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
-  const injectedAppVersionJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {};\n    // Returns a string version or null\n    window.requestAppVersion = function(success, error){\n      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);\n      const entry = { success: null, error: null, resolve: null, reject: null, t: null };\n      if (typeof success === 'function' || typeof error === 'function') {\n        entry.success = typeof success === 'function' ? success : null;\n        entry.error = typeof error === 'function' ? error : null;\n        window.__RN_APPVER_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id }));\n        return;\n      }\n      return new Promise((resolve, reject) => {\n        entry.resolve = resolve; entry.reject = reject;\n        entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000);\n        window.__RN_APPVER_CALLBACKS[id] = entry;\n        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id }));\n      });\n    };\n    window.__onNativeAppVersion = function(payload){\n      try {\n        const { id, version, error } = payload || {};\n        const cb = window.__RN_APPVER_CALLBACKS[id];\n        if (!cb) return;\n        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }\n        if (!error) {\n          if (cb.resolve) cb.resolve(version ?? null);\n          if (cb.success) cb.success(version ?? null);\n        } else {\n          if (cb.reject) cb.reject(error);\n          if (cb.error) cb.error(error);\n        }\n        delete window.__RN_APPVER_CALLBACKS[id];\n      } catch(e){}\n    };\n  } catch(e){}\n})(); true;`, []);
-  const injectedAllWithFcmJs = useMemo(() => `${injectedAllJs}\n${injectedFcmJs}\n${injectedKakaoShareJs}\n${injectedAppVersionJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs, injectedAppVersionJs]);
+  const injectedFcmJs = useMemo(() => `(() => {
+  try {
+    if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {};
+    if (!window.__FB_BLOCK_CTL) window.__FB_BLOCK_CTL = { on: false, t: null };
+    window.requestFcmToken = function(success, error){
+      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+      const entry = { success: null, error: null, resolve: null, reject: null, t: null };
+      // enable conditional block for firebase web scripts during token request
+      try {
+        window.__FB_BLOCK_CTL.on = true;
+        if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} }
+        window.__FB_BLOCK_CTL.t = setTimeout(function(){ try { window.__FB_BLOCK_CTL.on = false; } catch(_){} }, 15000);
+      } catch(_){ }
+      if (typeof success === 'function' || typeof error === 'function') {
+        entry.success = typeof success === 'function' ? success : null;
+        entry.error = typeof error === 'function' ? error : null;
+        window.__RN_FCM_CALLBACKS[id] = entry;
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));
+        return;
+      }
+      return new Promise((resolve, reject) => {
+        entry.resolve = resolve; entry.reject = reject;
+        entry.t = setTimeout(() => {
+          delete window.__RN_FCM_CALLBACKS[id];
+          reject(new Error('FCM timeout'));
+        }, 15000);
+        window.__RN_FCM_CALLBACKS[id] = entry;
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id }));
+      });
+    };
+    window.__onNativeFcmToken = function(payload){
+      try {
+        const { id, token, error } = payload || {};
+        const cb = window.__RN_FCM_CALLBACKS[id];
+        if (!cb) return;
+        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }
+        if (token) {
+          if (cb.resolve) cb.resolve(token);
+          if (cb.success) cb.success({ token });
+        } else if (error) {
+          if (cb.reject) cb.reject(error);
+          if (cb.error) cb.error(error);
+        }
+        delete window.__RN_FCM_CALLBACKS[id];
+      } catch(e){} finally {
+        try {
+          if (window.__FB_BLOCK_CTL) {
+            window.__FB_BLOCK_CTL.on = false;
+            if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} }
+          }
+        } catch(_){ }
+      }
+    };
+  } catch(e){}
+})(); true;`, []);
+  const injectedKakaoShareJs = useMemo(() => `(() => {
+  try {
+    window.requestShareKakao = function(url){
+      try {
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') }));
+      } catch(e){}
+    };
+  } catch(e){}
+})(); true;`, []);
+  const injectedAppVersionJs = useMemo(() => `(() => {
+  try {
+    if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {};
+    // Returns a string version or null
+    window.requestAppVersion = function(success, error){
+      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+      const entry = { success: null, error: null, resolve: null, reject: null, t: null };
+      if (typeof success === 'function' || typeof error === 'function') {
+        entry.success = typeof success === 'function' ? success : null;
+        entry.error = typeof error === 'function' ? error : null;
+        window.__RN_APPVER_CALLBACKS[id] = entry;
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id }));
+        return;
+      }
+      return new Promise((resolve, reject) => {
+        entry.resolve = resolve; entry.reject = reject;
+        entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000);
+        window.__RN_APPVER_CALLBACKS[id] = entry;
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id }));
+      });
+    };
+    window.__onNativeAppVersion = function(payload){
+      try {
+        const { id, version, error } = payload || {};
+        const cb = window.__RN_APPVER_CALLBACKS[id];
+        if (!cb) return;
+        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }
+        if (!error) {
+          if (cb.resolve) cb.resolve(version ?? null);
+          if (cb.success) cb.success(version ?? null);
+        } else {
+          if (cb.reject) cb.reject(error);
+          if (cb.error) cb.error(error);
+        }
+        delete window.__RN_APPVER_CALLBACKS[id];
+      } catch(e){}
+    };
+  } catch(e){}
+})(); true;`, []);
+  const injectedOpenSettingsJs = useMemo(() => `(() => {
+  try {
+    if (!window.__RN_SETTINGS_CALLBACKS) window.__RN_SETTINGS_CALLBACKS = {};
+    window.requestOpenAppSettings = function(success, error){
+      const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+      const entry = { success: null, error: null, resolve: null, reject: null, t: null };
+      if (typeof success === 'function' || typeof error === 'function') {
+        entry.success = typeof success === 'function' ? success : null;
+        entry.error = typeof error === 'function' ? error : null;
+        window.__RN_SETTINGS_CALLBACKS[id] = entry;
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_OPEN_SETTINGS', id }));
+        return;
+      }
+      return new Promise((resolve, reject) => {
+        entry.resolve = resolve; entry.reject = reject;
+        entry.t = setTimeout(() => { delete window.__RN_SETTINGS_CALLBACKS[id]; reject(new Error('OPEN_SETTINGS timeout')); }, 10000);
+        window.__RN_SETTINGS_CALLBACKS[id] = entry;
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_OPEN_SETTINGS', id }));
+      });
+    };
+    window.__onNativeOpenSettings = function(payload){
+      try {
+        const { id, ok, error } = payload || {};
+        const cb = window.__RN_SETTINGS_CALLBACKS[id];
+        if (!cb) return;
+        if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }
+        if (ok) {
+          if (cb.resolve) cb.resolve(true);
+          if (cb.success) cb.success(true);
+        } else if (error) {
+          if (cb.reject) cb.reject(error);
+          if (cb.error) cb.error(error);
+        }
+        delete window.__RN_SETTINGS_CALLBACKS[id];
+      } catch(e){}
+    };
+  } catch(e){}
+})(); true;`, []);
+  // Provide a reliable way to ask native WebView to open a new window even after async work
+  const injectedRequestWindowJs = useMemo(() => `(() => {
+  try {
+    window.requestWindowOpen = function(url, optsOrTitle, maybeNoHeader){
+      try {
+        if (!url) return false;
+        var base = (typeof location !== 'undefined') ? location.href : undefined;
+        var u; try { u = new URL(String(url), base); } catch(e){ return false; }
+        var title = ''; var noheader = false;
+        if (typeof optsOrTitle === 'string') { title = optsOrTitle || ''; noheader = !!maybeNoHeader; }
+        else if (optsOrTitle && typeof optsOrTitle === 'object') { title = String(optsOrTitle.title || ''); noheader = !!optsOrTitle.noheader; }
+        if (title) { try { u.searchParams.set('__title', encodeURIComponent(title)); } catch(_){ u.searchParams.set('__title', title); } }
+        if (noheader) { u.searchParams.set('__no_header','1'); }
+        var finalUrl = u.toString();
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_WINDOW', url: finalUrl }));
+          return true;
+        }
+        // Fallback for pure browser
+        try { window.location.assign(finalUrl); return true; } catch(_) { return false; }
+      } catch(e){ return false; }
+    };
+  } catch(e) {}
+})(); true;`, []);
+  const injectedBlockFirebaseJs = useMemo(() => `(() => {
+  try {
+    var isFirebaseScript = function(u){
+      try { var s = String(u || '');
+        return /(?:^|\/)?firebase(?:-[a-z]+)?\.js(?:$|[?#])/i.test(s) || /gstatic\.com\/firebasejs/i.test(s);
+      } catch(e){ return false; }
+    };
+    var origAppend = Node && Node.prototype && Node.prototype.appendChild;
+    if (origAppend) { Node.prototype.appendChild = function(child){ try { var u=(child && (child.src||child.href))||''; if (isFirebaseScript(u)) { return child; } } catch(_){} return origAppend.apply(this, arguments); }; }
+    var origInsertBefore = Node && Node.prototype && Node.prototype.insertBefore;
+    if (origInsertBefore) { Node.prototype.insertBefore = function(child){ try { var u=(child && (child.src||child.href))||''; if (isFirebaseScript(u)) { return child; } } catch(_){} return origInsertBefore.apply(this, arguments); }; }
+    var origSetAttr = Element && Element.prototype && Element.prototype.setAttribute;
+    if (origSetAttr) { Element.prototype.setAttribute = function(name, value){ try { if ((name==='src'||name==='href') && isFirebaseScript(value)) { return; } } catch(_){} return origSetAttr.apply(this, arguments); }; }
+    if (!('firebase' in window)) {
+      Object.defineProperty(window, 'firebase', { configurable: true, get: function(){ return window.__firebaseShim || (window.__firebaseShim = { apps: [], initializeApp: function(){ return {}; }, app: function(){ return {}; } }); }, set: function(_){} });
+    }
+  } catch(e) {}
+})(); true;`, []);
+  const injectedFirebaseModShimJs = useMemo(() => `(() => {
+  try {
+    // Provide minimal compat and modular shims so bundled web code won't throw
+    if (!('firebase' in window)) {
+      Object.defineProperty(window, 'firebase', { configurable: true, get: function(){ return window.__firebaseShim || (window.__firebaseShim = { apps: [], initializeApp: function(){ return {}; }, app: function(){ return {}; } }); }, set: function(_){} });
+    }
+    if (typeof window.initializeApp !== 'function') {
+      window.initializeApp = function(){ return { name: '[DEFAULT]' }; };
+    }
+    if (typeof window.getApp !== 'function') {
+      window.getApp = function(){ return { name: '[DEFAULT]' }; };
+    }
+    if (typeof window.getMessaging !== 'function') {
+      window.getMessaging = function(){ return {}; };
+    }
+    if (typeof window.getToken !== 'function') {
+      window.getToken = async function(){ return ''; };
+    }
+  } catch(e){}
+})(); true;`, []);
+  const injectedAllWithFcmJs = useMemo(() => `${injectedFirebaseModShimJs}
+${injectedFcmJs}
+${injectedAllJs}
+${injectedKakaoShareJs}
+${injectedAppVersionJs}
+${injectedOpenSettingsJs}
+${injectedRequestWindowJs}
+${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs, injectedAppVersionJs, injectedOpenSettingsJs, injectedRequestWindowJs, injectedBlockFirebaseJs]);
   const injectedCoopBridgeJs = useMemo(
     () =>
       `(() => {
@@ -41,12 +248,14 @@ export default function WebviewScreen() {
         window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOP_BRIDGE', payload: msg }));
       } catch(e){}
     };
+    // alias for compatibility with different casing used by some pages
+    try { if (typeof window.AppInterFaceForCoop === 'undefined') { window.AppInterFaceForCoop = window.AppInterfaceForCoop; } } catch(_){ }
   } catch(e){}
 })(); true;`,
     []
   );
   const injectedAllWithFcmAndCoopJs = useMemo(
-    () => `${injectedAllWithFcmJs}\n${injectedCoopBridgeJs}`,
+    () => `${injectedCoopBridgeJs}\n${injectedAllWithFcmJs}`,
     [injectedAllWithFcmJs, injectedCoopBridgeJs]
   );
 
@@ -100,10 +309,23 @@ export default function WebviewScreen() {
         source={{ uri: webviewUrl }}
         style={styles.webview}
         onNavigationStateChange={(state) => setCanGoBack(state.canGoBack)}
+        injectedJavaScriptForMainFrameOnly={false}
+        injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
+        onLoad={() => {
+          try {
+            webviewRef.current?.injectJavaScript(injectedFirebaseModShimJs);
+            webviewRef.current?.injectJavaScript(injectedFcmJs);
+            webviewRef.current?.injectJavaScript(injectedAppVersionJs);
+            webviewRef.current?.injectJavaScript(injectedCoopBridgeJs);
+            webviewRef.current?.injectJavaScript(injectedKakaoShareJs);
+            webviewRef.current?.injectJavaScript(injectedOpenSettingsJs);
+            webviewRef.current?.injectJavaScript(injectedRequestWindowJs);
+          } catch {}
+        }}
         javaScriptEnabled
         domStorageEnabled
         thirdPartyCookiesEnabled
-        setSupportMultipleWindows={false}
+        setSupportMultipleWindows={true}
         onShouldStartLoadWithRequest={(req) => {
           // Intercept window.open/new-window navigations
           if (req && req.url && req.isTopFrame === false) {
@@ -111,6 +333,7 @@ export default function WebviewScreen() {
             return false;
           }
           const u = req?.url || '';
+          if (u.startsWith('sulbingapp://close_webview')) { try { router.back(); } catch {} return false; }
           if (u.startsWith('intent://')) { Linking.openURL(u).catch(() => {}); return false; }
           const schemes = ['ispmobile://','kakaotalk://','payco://','samsungpay://','kftc-bankpay://','passapp://'];
           if (schemes.some((s) => u.startsWith(s))) { Linking.openURL(u).catch(() => {}); return false; }
@@ -150,13 +373,54 @@ export default function WebviewScreen() {
             } else if (data.type === 'REQUEST_FCM_TOKEN') {
               const id = String(data.id);
               try {
+                // Diagnostics: config and RNFirebase default app status
+                try {
+                  const rnfbApp = (await import('@react-native-firebase/app')).default as any;
+                  try {
+                    const appNames = (rnfbApp as any).apps?.map((a: any) => a?.name) ?? [];
+                    // eslint-disable-next-line no-console
+                    console.log('[RNFB][tabs] apps:', appNames);
+                  } catch {}
+                  try {
+                    const opts = (rnfbApp as any)()?.options;
+                    // eslint-disable-next-line no-console
+                    console.log('[RNFB][tabs] default options:', {
+                      appId: opts?.appId, projectId: opts?.projectId, hasApiKey: !!opts?.apiKey,
+                    });
+                  } catch (e: any) {
+                    // eslint-disable-next-line no-console
+                    console.log('[RNFB][tabs] app() error:', e?.message);
+                  }
+                } catch (e: any) {
+                  // eslint-disable-next-line no-console
+                  console.log('[RNFB][tabs] import app failed:', e?.message);
+                }
+                try {
+                  // eslint-disable-next-line no-console
+                  console.log('[CFG][tabs]', {
+                    variant: (Constants as any)?.expoConfig?.extra?.APP_VARIANT,
+                    bundleId: (Constants as any)?.expoConfig?.ios?.bundleIdentifier,
+                    googleServicesFile: (Constants as any)?.expoConfig?.ios?.googleServicesFile,
+                    platform: Platform.OS,
+                  });
+                } catch {}
                 const messaging = (await import('@react-native-firebase/messaging')).default;
 
                 if (Platform.OS === 'ios') {
-                  // iOS: do not request permission here; just try to fetch token without prompting
+                  // iOS: Ensure APNs registration, then try to get token without prompting.
+                  // eslint-disable-next-line no-console
+                  console.log('[FCM][tabs][iOS] begin');
                   await messaging().setAutoInitEnabled(true);
-                  const token = await messaging().getToken();
-                  webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token })}); true;`);
+                  try { await messaging().registerDeviceForRemoteMessages(); /* eslint-disable-line */ } catch (e) { console.log('[FCM][tabs][iOS] register err', (e as any)?.message); }
+                  const apns = await messaging().getAPNSToken(); console.log('[FCM][tabs][iOS] apns:', apns);
+                  let token = await messaging().getToken(); console.log('[FCM][tabs][iOS] token1:', token);
+                  // If still missing, as a fallback, request permission and retry once.
+                  if (!token) {
+                    try { await messaging().requestPermission(); console.log('[FCM][tabs][iOS] permission OK'); } catch (e) { console.log('[FCM][tabs][iOS] permission err', (e as any)?.message); }
+                    try { await messaging().registerDeviceForRemoteMessages(); /* eslint-disable-line */ } catch (e) { console.log('[FCM][tabs][iOS] re-register err', (e as any)?.message); }
+                    try { token = await messaging().getToken(); console.log('[FCM][tabs][iOS] token2:', token); } catch (e) { console.log('[FCM][tabs][iOS] getToken err2', (e as any)?.message); }
+                  }
+                  webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token, apnsToken: apns || null })}); true;`);
                   return;
                 }
 
@@ -183,14 +447,10 @@ export default function WebviewScreen() {
                 const tryUrl = `kakaotalk://send?text=${encodeURIComponent(shareUrl)}`;
                 Linking.openURL(tryUrl).catch(() => {
                   // fallback: system share sheet
-                  import('react-native').then(({ Share }) => {
-                    Share.share({ message: shareUrl });
-                  });
-                });
-              } catch {
-                import('react-native').then(({ Share }) => {
                   Share.share({ message: shareUrl });
                 });
+              } catch {
+                Share.share({ message: shareUrl });
               }
               return;
             } else if (data.type === 'REQUEST_APP_VERSION') {
@@ -205,6 +465,15 @@ export default function WebviewScreen() {
                 webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify(payload)}); true;`);
               } catch (e: any) {
                 webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify({ id, error: { message: e?.message || 'APP_VERSION failed' } })}); true;`);
+              }
+              return;
+            } else if (data.type === 'REQUEST_OPEN_SETTINGS') {
+              const id = String(data.id);
+              try {
+                await Linking.openSettings();
+                webviewRef.current?.injectJavaScript(`window.__onNativeOpenSettings(${JSON.stringify({ id, ok: true })}); true;`);
+              } catch (e: any) {
+                webviewRef.current?.injectJavaScript(`window.__onNativeOpenSettings(${JSON.stringify({ id, ok: false, error: { message: e?.message || 'OPEN_SETTINGS failed' } })}); true;`);
               }
               return;
             } else if (data.type === 'COOP_BRIDGE') {
