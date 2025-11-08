@@ -1,4 +1,5 @@
 import { eventBus } from '@/lib/event-bus';
+import { useNavigation } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -7,10 +8,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function BarcodeScanScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const [hasPermission, setHasPermission] = React.useState<boolean | null>(null);
   const [scanned, setScanned] = React.useState(false);
   const [CameraComp, setCameraComp] = React.useState<any>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+
+  const safeBack = React.useCallback(() => {
+    try {
+      // Prefer native navigation back when available
+      // @ts-ignore - type from expo-router interop
+      if (navigation?.canGoBack && navigation.canGoBack()) {
+        // @ts-ignore
+        navigation.goBack();
+        return;
+      }
+    } catch {}
+    try { router.back(); } catch {}
+    // Fallback to root
+    try { router.replace('/'); } catch {}
+  }, [navigation, router]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -38,11 +55,12 @@ export default function BarcodeScanScreen() {
     if (id) {
       eventBus.emit('SCAN_RESULT', { id: String(id), code: String(data) });
     }
-    router.back();
+    // Close the scan screen itself after emitting the result
+    safeBack();
   };
 
   const handleCancel = () => {
-    router.back();
+    safeBack();
   };
 
   if (loadError) {
@@ -50,7 +68,7 @@ export default function BarcodeScanScreen() {
       <SafeAreaView style={styles.centered}>
         <Text>{loadError}</Text>
         <Text style={{ marginTop: 8 }}>Dev Client 또는 재빌드가 필요할 수 있습니다.</Text>
-        <Pressable onPress={() => router.back()} style={styles.button}><Text style={styles.buttonText}>닫기</Text></Pressable>
+        <Pressable onPress={safeBack} style={styles.button}><Text style={styles.buttonText}>닫기</Text></Pressable>
       </SafeAreaView>
     );
   }
@@ -80,11 +98,13 @@ export default function BarcodeScanScreen() {
         <View style={styles.headerButton} />
       </View>
       <View style={styles.scannerContainer}>
-        <CameraComp
-          facing="back"
-          onBarcodeScanned={handleBarCodeScanned}
-          style={StyleSheet.absoluteFillObject}
-        />
+        {!scanned && (
+          <CameraComp
+            facing="back"
+            onBarcodeScanned={handleBarCodeScanned}
+            style={StyleSheet.absoluteFillObject}
+          />
+        )}
       </View>
       {scanned && (
         <View style={styles.footer}><Text>처리 중…</Text></View>

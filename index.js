@@ -15,6 +15,9 @@ if (Platform.OS !== 'web') {
       messaging().onNotificationOpenedApp((remoteMessage) => {
         try {
           const payload = remoteMessage?.data ?? remoteMessage ?? {};
+          // eslint-disable-next-line no-console
+          console.log('[PUSH][root][opened]', payload);
+          try { global.__PUSH_CLICKED_LAST = payload; } catch {}
           eventBus.emit('PUSH_CLICKED', { payload });
         } catch {}
       });
@@ -25,6 +28,9 @@ if (Platform.OS !== 'web') {
         setTimeout(() => {
           try {
             const payload = initial?.data ?? initial ?? {};
+            // eslint-disable-next-line no-console
+            console.log('[PUSH][root][initial]', payload);
+            try { global.__PUSH_CLICKED_LAST = payload; } catch {}
             eventBus.emit('PUSH_CLICKED', { payload });
           } catch {}
         }, 500);
@@ -34,5 +40,17 @@ if (Platform.OS !== 'web') {
     }
   })();
 }
+
+// Dev helper: emit a synthetic push-click from console
+try {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  global.__emitTestPush = (payload) => {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[PUSH][root][manual]', payload);
+      eventBus.emit('PUSH_CLICKED', { payload: payload || {} });
+    } catch {}
+  };
+} catch {}
 
 

@@ -1,3 +1,5 @@
+import { getApps } from '@react-native-firebase/app';
+import messaging from '@react-native-firebase/messaging';
 import { useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
@@ -8,11 +10,16 @@ import { BackHandler, PermissionsAndroid, Platform, Share, StyleSheet, Text, Vie
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
+// Serialize iOS FCM token requests to avoid race with remote message registration
+let __IOS_FCM_REQUEST_IN_FLIGHT = false;
+
 export default function WebviewScreen() {
   const webviewUrl = (Constants?.expoConfig?.extra as any)?.WEBVIEW_URL ?? process.env.EXPO_PUBLIC_WEBVIEW_URL ?? '';
   const webviewRef = React.useRef<WebView>(null);
   const [canGoBack, setCanGoBack] = React.useState(false);
   const router = useRouter();
+  const isReadyRef = React.useRef(false);
+  const pendingPushRef = React.useRef<any[]>([]);
   const injectedGeolocationJs = useMemo(() => `(() => {\n  try {\n    if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }\n    navigator.geolocation.getCurrentPosition = function(success, error) {\n      const id = String(Date.now());\n      window.__RN_LOCATION_CALLBACKS[id] = { success, error };\n      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_LOCATION', id }));\n    };\n    window.__onNativeLocation = function(payload) {\n      try {\n        const { id, coords, error } = payload || {};\n        const cb = window.__RN_LOCATION_CALLBACKS[id];\n        if (!cb) return;\n        if (coords && cb.success) cb.success({ coords });\n        else if (error && cb.error) cb.error(error);\n        delete window.__RN_LOCATION_CALLBACKS[id];\n      } catch (e) {}\n    };\n  } catch (e) {}\n})(); true;`, []);
 
   const injectedWindowOpenJs = useMemo(() => `(() => {\n  try {\n    const sendOpen = (u,n,s) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_WINDOW', url: u, name: n || '', specs: s || '' })); } catch(e){}\n    };\n    const sendOpenBlank = (u) => {\n      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_TARGET_BLANK', url: u })); } catch(e){}\n    };\n    const origOpen = window.open;\n    window.open = function(url, name, specs) {\n      if (url) sendOpen(url, name, specs);\n      return null;\n    };\n    document.addEventListener('click', function(e){\n      const a = e.target && e.target.closest ? e.target.closest('a[target=\"_blank\"]') : null;\n      if (a && a.href) {\n        if (/^https?:\\/\\//i.test(a.href)) { e.preventDefault(); sendOpenBlank(a.href); }\n      }\n    }, true);\n  } catch(e){}\n})(); true;`, []);
@@ -54,13 +61,14 @@ export default function WebviewScreen() {
     };
     window.__onNativeFcmToken = function(payload){
       try {
-        const { id, token, error } = payload || {};
+        const { id, token, osTypeCd, error } = payload || {};
         const cb = window.__RN_FCM_CALLBACKS[id];
         if (!cb) return;
         if (cb.t) { try { clearTimeout(cb.t); } catch(_){} }
         if (token) {
-          if (cb.resolve) cb.resolve(token);
-          if (cb.success) cb.success({ token });
+          var result = { token: token, osTypeCd: osTypeCd || ((/iPad|iPhone|iPod/i.test(navigator.userAgent)) ? 'IOS' : 'ANDROID') };
+          if (cb.resolve) cb.resolve(result);
+          if (cb.success) cb.success(result);
         } else if (error) {
           if (cb.reject) cb.reject(error);
           if (cb.error) cb.error(error);
@@ -163,6 +171,20 @@ export default function WebviewScreen() {
     };
   } catch(e){}
 })(); true;`, []);
+  const injectedCloseWindowJs = useMemo(() => `(() => {
+  try {
+    const __origClose = window.close;
+    window.close = function(){
+      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW' })); } catch(e){}
+      return undefined;
+    };
+    // expose also as explicit bridge
+    window.requestWindowClose = function(){
+      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW' })); } catch(e){}
+      return true;
+    };
+  } catch(e){}
+})(); true;`, []);
   // Provide a reliable way to ask native WebView to open a new window even after async work
   const injectedRequestWindowJs = useMemo(() => `(() => {
   try {
@@ -232,7 +254,8 @@ ${injectedKakaoShareJs}
 ${injectedAppVersionJs}
 ${injectedOpenSettingsJs}
 ${injectedRequestWindowJs}
-${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs, injectedAppVersionJs, injectedOpenSettingsJs, injectedRequestWindowJs, injectedBlockFirebaseJs]);
+${injectedCloseWindowJs}
+${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs, injectedAppVersionJs, injectedOpenSettingsJs, injectedRequestWindowJs, injectedCloseWindowJs, injectedBlockFirebaseJs]);
   const injectedCoopBridgeJs = useMemo(
     () =>
       `(() => {
@@ -259,13 +282,21 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
     [injectedAllWithFcmJs, injectedCoopBridgeJs]
   );
 
-  // Listen for push click events and forward to web
+  // Listen for push click events and forward to web (buffer until ready)
   React.useEffect(() => {
     let off: any;
     (async () => {
       try {
         const { eventBus } = await import('@/lib/event-bus');
         off = eventBus.on('PUSH_CLICKED', ({ payload }) => {
+          if (!(isReadyRef as any).current) {
+            (pendingPushRef as any).current.push(payload);
+            // eslint-disable-next-line no-console
+            console.log('[PUSH][tabs][buffer]', payload);
+            return;
+          }
+          // eslint-disable-next-line no-console
+          console.log('[PUSH][tabs][inject]', payload);
           const js = `(function(){ try{ if (typeof window.pushTypeHandler==='function'){ window.pushTypeHandler(${JSON.stringify(
             payload
           )}); } }catch(e){} })(); true;`;
@@ -313,6 +344,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         onLoad={() => {
           try {
+            (isReadyRef as any).current = true;
             webviewRef.current?.injectJavaScript(injectedFirebaseModShimJs);
             webviewRef.current?.injectJavaScript(injectedFcmJs);
             webviewRef.current?.injectJavaScript(injectedAppVersionJs);
@@ -320,6 +352,33 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             webviewRef.current?.injectJavaScript(injectedKakaoShareJs);
             webviewRef.current?.injectJavaScript(injectedOpenSettingsJs);
             webviewRef.current?.injectJavaScript(injectedRequestWindowJs);
+            webviewRef.current?.injectJavaScript(injectedCloseWindowJs);
+            // also check root buffer (in case event fired before listener attached)
+            try {
+              const gp = (global as any).__PUSH_CLICKED_LAST;
+              if (gp) {
+                // eslint-disable-next-line no-console
+                console.log('[PUSH][tabs][inject-root]', gp);
+                const js = `(function(){ try{ if (typeof window.pushTypeHandler==='function'){ window.pushTypeHandler(${JSON.stringify(
+                  gp
+                )}); } }catch(e){} })(); true;`;
+                webviewRef.current?.injectJavaScript(js);
+                (global as any).__PUSH_CLICKED_LAST = null;
+              }
+            } catch {}
+            // drain buffered push payloads
+            try {
+              const list = (pendingPushRef as any).current || [];
+              (pendingPushRef as any).current = [];
+              for (const pl of list) {
+                // eslint-disable-next-line no-console
+                console.log('[PUSH][tabs][inject-drain]', pl);
+                const js = `(function(){ try{ if (typeof window.pushTypeHandler==='function'){ window.pushTypeHandler(${JSON.stringify(
+                  pl
+                )}); } }catch(e){} })(); true;`;
+                webviewRef.current?.injectJavaScript(js);
+              }
+            } catch {}
           } catch {}
         }}
         javaScriptEnabled
@@ -375,20 +434,15 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               try {
                 // Diagnostics: config and RNFirebase default app status
                 try {
-                  const rnfbApp = (await import('@react-native-firebase/app')).default as any;
+                  const appNames = getApps?.().map((a: any) => a?.name) ?? [];
+                  // eslint-disable-next-line no-console
+                  console.log('[RNFB][tabs] apps:', appNames);
                   try {
-                    const appNames = (rnfbApp as any).apps?.map((a: any) => a?.name) ?? [];
-                    // eslint-disable-next-line no-console
-                    console.log('[RNFB][tabs] apps:', appNames);
-                  } catch {}
-                  try {
-                    const opts = (rnfbApp as any)()?.options;
-                    // eslint-disable-next-line no-console
+                    const opts = messaging().app.options;
                     console.log('[RNFB][tabs] default options:', {
                       appId: opts?.appId, projectId: opts?.projectId, hasApiKey: !!opts?.apiKey,
                     });
                   } catch (e: any) {
-                    // eslint-disable-next-line no-console
                     console.log('[RNFB][tabs] app() error:', e?.message);
                   }
                 } catch (e: any) {
@@ -404,24 +458,65 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                     platform: Platform.OS,
                   });
                 } catch {}
-                const messaging = (await import('@react-native-firebase/messaging')).default;
-
                 if (Platform.OS === 'ios') {
+                  // simple lock to avoid concurrent requests
+                  if (__IOS_FCM_REQUEST_IN_FLIGHT) {
+                    for (let i = 0; i < 20 && __IOS_FCM_REQUEST_IN_FLIGHT; i++) {
+                      await new Promise((r) => setTimeout(r, 150));
+                    }
+                  }
+                  __IOS_FCM_REQUEST_IN_FLIGHT = true;
                   // iOS: Ensure APNs registration, then try to get token without prompting.
                   // eslint-disable-next-line no-console
                   console.log('[FCM][tabs][iOS] begin');
-                  await messaging().setAutoInitEnabled(true);
-                  try { await messaging().registerDeviceForRemoteMessages(); /* eslint-disable-line */ } catch (e) { console.log('[FCM][tabs][iOS] register err', (e as any)?.message); }
-                  const apns = await messaging().getAPNSToken(); console.log('[FCM][tabs][iOS] apns:', apns);
-                  let token = await messaging().getToken(); console.log('[FCM][tabs][iOS] token1:', token);
-                  // If still missing, as a fallback, request permission and retry once.
-                  if (!token) {
-                    try { await messaging().requestPermission(); console.log('[FCM][tabs][iOS] permission OK'); } catch (e) { console.log('[FCM][tabs][iOS] permission err', (e as any)?.message); }
-                    try { await messaging().registerDeviceForRemoteMessages(); /* eslint-disable-line */ } catch (e) { console.log('[FCM][tabs][iOS] re-register err', (e as any)?.message); }
-                    try { token = await messaging().getToken(); console.log('[FCM][tabs][iOS] token2:', token); } catch (e) { console.log('[FCM][tabs][iOS] getToken err2', (e as any)?.message); }
+                  try {
+                    await messaging().setAutoInitEnabled(true);
+                    try {
+                      // Ensure device is registered before any getToken call
+                      let registered = false;
+                      try {
+                        // @ts-ignore
+                        registered = !!(await messaging().isDeviceRegisteredForRemoteMessages?.());
+                      } catch {
+                        // @ts-ignore
+                        registered = !!(messaging() as any).isDeviceRegisteredForRemoteMessages;
+                      }
+                      console.log('[FCM][tabs][iOS] isRegistered:', !!registered);
+                      if (!registered) {
+                        await messaging().registerDeviceForRemoteMessages(); /* eslint-disable-line */
+                        await new Promise((r) => setTimeout(r, 200));
+                        try {
+                          // @ts-ignore
+                          registered = !!(await messaging().isDeviceRegisteredForRemoteMessages?.());
+                        } catch {
+                          // @ts-ignore
+                          registered = !!(messaging() as any).isDeviceRegisteredForRemoteMessages;
+                        }
+                        console.log('[FCM][tabs][iOS] registered now:', registered);
+                      }
+                    } catch (e) { console.log('[FCM][tabs][iOS] register err', (e as any)?.message); }
+                    const apns = await messaging().getAPNSToken(); console.log('[FCM][tabs][iOS] apns:', apns);
+                    let token: string | undefined;
+                    try {
+                      await new Promise((r) => setTimeout(r, 150));
+                      token = await messaging().getToken();
+                      console.log('[FCM][tabs][iOS] token1:', token);
+                    } catch (e) {
+                      console.log('[FCM][tabs][iOS] getToken err1', (e as any)?.message);
+                    }
+                    // If still missing, as a fallback, request permission and retry once.
+                    if (!token) {
+                      try {
+                        await messaging().registerDeviceForRemoteMessages(); /* eslint-disable-line */
+                        await new Promise((r) => setTimeout(r, 200));
+                      } catch (e) { console.log('[FCM][tabs][iOS] re-register err', (e as any)?.message); }
+                      try { token = await messaging().getToken(); console.log('[FCM][tabs][iOS] token2:', token); } catch (e) { console.log('[FCM][tabs][iOS] getToken err2', (e as any)?.message); }
+                    }
+                    webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token, osTypeCd: 'IOS', apnsToken: apns || null })}); true;`);
+                    return;
+                  } finally {
+                    __IOS_FCM_REQUEST_IN_FLIGHT = false;
                   }
-                  webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token, apnsToken: apns || null })}); true;`);
-                  return;
                 }
 
                 // Android: try getToken first without prompting, then request notification permission only if needed (API 33+)
@@ -436,7 +531,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                   await new Promise((r) => setTimeout(r, 300));
                   token = await messaging().getToken();
                 }
-                webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token })}); true;`);
+                webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, token, osTypeCd: 'ANDROID' })}); true;`);
               } catch (e: any) {
                 webviewRef.current?.injectJavaScript(`window.__onNativeFcmToken(${JSON.stringify({ id, error: { message: (e?.message) || 'FCM token failed' } })}); true;`);
               }
@@ -467,6 +562,9 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                 webviewRef.current?.injectJavaScript(`window.__onNativeAppVersion(${JSON.stringify({ id, error: { message: e?.message || 'APP_VERSION failed' } })}); true;`);
               }
               return;
+            } else if (data.type === 'REQUEST_CLOSE_WINDOW') {
+              try { router.back(); } catch {}
+              return;
             } else if (data.type === 'REQUEST_OPEN_SETTINGS') {
               const id = String(data.id);
               try {
@@ -484,6 +582,8 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               const reqData = req?.data ?? {};
               const sendCoopResponse = (respObj: any) => {
                 const jsonStr = JSON.stringify(respObj);
+                // eslint-disable-next-line no-console
+                console.log('[COOP][tabs][send]', respObj);
                 const js = `(function(){ try{ if (window.AppInterfaceForCoop && typeof window.AppInterfaceForCoop.onmessage==='function'){ window.AppInterfaceForCoop.onmessage({ data: ${JSON.stringify(
                   jsonStr
                 )} }); } } catch(e){} })(); true;`;

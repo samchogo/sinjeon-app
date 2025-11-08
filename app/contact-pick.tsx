@@ -47,11 +47,6 @@ export default function ContactPickScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.headerButton}><Text style={styles.headerButtonText}>×</Text></Pressable>
-        <Text style={styles.headerTitle}>연락처 선택</Text>
-        <View style={styles.headerButton} />
-      </View>
       <View style={styles.searchRow}>
         <TextInput
           value={q}
@@ -65,7 +60,7 @@ export default function ContactPickScreen() {
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, idx) => String((item as any)?.id ?? idx)}
           renderItem={({ item }) => (
             <Pressable style={styles.item} onPress={() => onSelect(item)}>
               <Text style={styles.itemName}>{item.name || '이름 없음'}</Text>

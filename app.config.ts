@@ -30,13 +30,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     process.env.EXPO_PUBLIC_WEBVIEW_URL ??
     (APP_VARIANT === 'prod'
       ? 'https://sapp.sulbing.com/'
-      : 'http://192.168.103.20:5137/test');
+      : 'http://192.168.103.20:5137');
 
   return {
     ...config,
     name: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
     slug: 'sulbing-app',
-    version: '1.0.1',
+    version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
     scheme: 'sulbingapp',
@@ -46,7 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       bundleIdentifier: IOS_BUNDLE_ID,
       supportsTablet: true,
       googleServicesFile: IOS_GOOGLE_SERVICES_FILE,
-      buildNumber: '1002',
+      buildNumber: '1000',
       entitlements: { 'aps-environment': 'development' },
       infoPlist: {
         CFBundleDisplayName: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
@@ -104,7 +104,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       package: ANDROID_PACKAGE,
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
-      versionCode: 1002,
+      versionCode: 1000,
       notification: {
         icon: './assets/images/notification-icon.png',
         color: '#863534',
