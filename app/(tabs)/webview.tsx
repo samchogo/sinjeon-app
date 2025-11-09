@@ -454,8 +454,9 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           const u = req?.url || '';
           if (u.startsWith('sulbingapp://close_webview')) { try { router.back(); } catch {} return false; }
           if (u.startsWith('intent://')) { Linking.openURL(u).catch(() => {}); return false; }
-          const schemes = ['ispmobile://','kakaotalk://','payco://','samsungpay://','kftc-bankpay://','passapp://'];
-          if (schemes.some((s) => u.startsWith(s))) { Linking.openURL(u).catch(() => {}); return false; }
+          // Allow only http/https inside WebView. All other custom schemes -> open externally.
+          if (/^https?:\/\//i.test(u)) return true;
+          if (/^[a-z][a-z0-9+.-]*:/i.test(u)) { Linking.openURL(u).catch(() => {}); return false; }
           return true;
         }}
         onOpenWindow={(event: any) => {
@@ -463,10 +464,13 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           const targetUrl = event?.nativeEvent?.targetUrl;
           if (!targetUrl) return;
           if (targetUrl.startsWith('intent://')) { Linking.openURL(targetUrl).catch(() => {}); return; }
-          const schemes = ['ispmobile://','kakaotalk://','payco://','samsungpay://','kftc-bankpay://','passapp://'];
-          if (schemes.some((s) => targetUrl.startsWith(s))) { Linking.openURL(targetUrl).catch(() => {}); return; }
-          const hide = /[?&]__no_header=1\b/.test(targetUrl);
-          router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
+          if (/^https?:\/\//i.test(targetUrl)) {
+            const hide = /[?&]__no_header=1\b/.test(targetUrl);
+            router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
+            return;
+          }
+          // Non-http(s) schemes open externally
+          if (/^[a-z][a-z0-9+.-]*:/i.test(targetUrl)) { Linking.openURL(targetUrl).catch(() => {}); return; }
         }}
         geolocationEnabled={false}
         injectedJavaScriptBeforeContentLoaded={injectedAllWithFcmAndCoopJs}
