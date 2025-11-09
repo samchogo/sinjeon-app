@@ -3,7 +3,6 @@ import messaging from '@react-native-firebase/messaging';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
-import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -118,18 +117,7 @@ export default function RootLayout() {
         }
       } catch {}
 
-      // Small delay to avoid overlapping OS dialogs
-      await new Promise((r) => setTimeout(r, 400));
-
-      try {
-        const fg = await Location.getForegroundPermissionsAsync();
-        if (fg.status !== 'granted') {
-          await Location.requestForegroundPermissionsAsync().catch(() => undefined);
-        }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.log('[LOCATION][perm] error', (e as any)?.message);
-      }
+      // Location permission prompts will occur on-demand from WebView requests only
     })();
 
     const sub = Linking.addEventListener('url', ({ url }) => openWeb(url));
