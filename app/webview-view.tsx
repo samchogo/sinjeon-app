@@ -6,7 +6,7 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback } from 'react';
-import { BackHandler, PermissionsAndroid, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, PermissionsAndroid, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
@@ -235,7 +235,7 @@ export default function WebviewViewScreen() {
         domStorageEnabled
         thirdPartyCookiesEnabled
         geolocationEnabled={false}
-        originWhitelist={['http://*', 'https://*', 'sulbingapp://*', 'intent://*']}
+        originWhitelist={['*']}
         onShouldStartLoadWithRequest={(req) => {
           const u = req?.url || '';
           if (u.startsWith('sulbingapp://close_webview')) { router.back(); return false; }
@@ -293,9 +293,16 @@ export default function WebviewViewScreen() {
             }
             if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) {
               Linking.canOpenURL(url).then((can) => {
-                if (can) Linking.openURL(url).catch(() => {});
-                else {
-                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                const doAndroidStoreFallback = (schemeOnly: string) => {
+                  const scheme = schemeOnly;
+                  if (Platform.OS === 'ios') {
+                    const iosStoreMap: Record<string, string> = {
+                      kakaotalk: 'itms-apps://itunes.apple.com/app/id362057947',
+                      payco: 'itms-apps://itunes.apple.com/app/id924292102',
+                    };
+                    const iosUrl = iosStoreMap[scheme];
+                    if (iosUrl) { Linking.openURL(iosUrl).catch(() => {}); return; }
+                  }
                   const pkgMap: Record<string, string> = {
                     'kakaotalk': 'com.kakao.talk',
                     'ispmobile': 'kvp.jjy.MispAndroid320',
@@ -307,7 +314,29 @@ export default function WebviewViewScreen() {
                     'tmoney': 'com.lgt.tmoney',
                   };
                   const pkg = pkgMap[scheme];
-                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  if (pkg) {
+                    Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  } else {
+                    Linking.openURL(`market://search?q=${encodeURIComponent(scheme)}`).catch(() => {});
+                  }
+                };
+                const doIosStoreFallback = (_schemeOnly: string) => {
+                  try {
+                    // eslint-disable-next-line no-console
+                    console.log('[PAY][iOS][fallback] show alert for missing app');
+                    setTimeout(() => Alert.alert('', '결제 앱 설치 후 이용해 주세요', [{ text: '확인' }]), 0);
+                  } catch {}
+                };
+                if (can) {
+                  Linking.openURL(url).catch(() => {
+                    const schemeOnly = String(url.split(':')[0] || '').toLowerCase();
+                    if (Platform.OS === 'android') doAndroidStoreFallback(schemeOnly);
+                    else doIosStoreFallback(schemeOnly);
+                  });
+                } else {
+                  const schemeOnly = String(url.split(':')[0] || '').toLowerCase();
+                  if (Platform.OS === 'android') doAndroidStoreFallback(schemeOnly);
+                  else doIosStoreFallback(schemeOnly);
                 }
               }).catch(() => {});
               return;
@@ -342,9 +371,7 @@ export default function WebviewViewScreen() {
             }
             if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) {
               Linking.canOpenURL(url).then((can) => {
-                if (can) Linking.openURL(url).catch(() => {});
-                else {
-                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                const doAndroidStoreFallback = (scheme: string) => {
                   const pkgMap: Record<string, string> = {
                     'kakaotalk': 'com.kakao.talk',
                     'ispmobile': 'kvp.jjy.MispAndroid320',
@@ -356,9 +383,31 @@ export default function WebviewViewScreen() {
                     'tmoney': 'com.lgt.tmoney',
                   };
                   const pkg = pkgMap[scheme];
-                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  if (pkg) {
+                    Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  } else {
+                    Linking.openURL(`market://search?q=${encodeURIComponent(scheme)}`).catch(() => {});
+                  }
+                };
+                const doIosStoreFallback = (_scheme: string) => {
+                  try { Alert.alert('안내', '결제 앱 설치 후 이용해 주세요'); } catch {}
+                };
+                if (can) {
+                  Linking.openURL(url).catch(() => {
+                    const schemeOnly = String(url.split(':')[0] || '').toLowerCase();
+                    if (Platform.OS === 'android') doAndroidStoreFallback(schemeOnly);
+                    else doIosStoreFallback(schemeOnly);
+                  });
+                } else {
+                  const schemeOnly = String(url.split(':')[0] || '').toLowerCase();
+                  if (Platform.OS === 'android') doAndroidStoreFallback(schemeOnly);
+                  else doIosStoreFallback(schemeOnly);
                 }
-              }).catch(() => {});
+              }).catch(() => {
+                if (Platform.OS === 'ios') {
+                  try { setTimeout(() => Alert.alert('', '결제 앱 설치 후 이용해 주세요', [{ text: '확인' }]), 0); } catch {}
+                }
+              });
               return;
             }
           };

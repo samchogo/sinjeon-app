@@ -6,7 +6,7 @@ import * as Linking from 'expo-linking';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo } from 'react';
-import { BackHandler, PermissionsAndroid, Platform, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, PermissionsAndroid, Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
@@ -509,9 +509,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             }
             if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) {
               Linking.canOpenURL(url).then((can) => {
-                if (can) Linking.openURL(url).catch(() => {});
-                else {
-                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                const doAndroidStoreFallback = (scheme: string) => {
                   const pkgMap: Record<string, string> = {
                     'kakaotalk': 'com.kakao.talk',
                     'ispmobile': 'kvp.jjy.MispAndroid320',
@@ -523,7 +521,25 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                     'tmoney': 'com.lgt.tmoney',
                   };
                   const pkg = pkgMap[scheme];
-                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  if (pkg) {
+                    Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  } else {
+                    Linking.openURL(`market://search?q=${encodeURIComponent(scheme)}`).catch(() => {});
+                  }
+                };
+                const doIosStoreFallback = (_scheme: string) => {
+                  try { setTimeout(() => Alert.alert('', '결제 앱 설치 후 이용해 주세요', [{ text: '확인' }]), 0); } catch {}
+                };
+                if (can) {
+                  Linking.openURL(url).catch(() => {
+                    const scheme = String(url.split(':')[0] || '').toLowerCase();
+                    if (Platform.OS === 'android') doAndroidStoreFallback(scheme);
+                    else doIosStoreFallback(scheme);
+                  });
+                } else {
+                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                  if (Platform.OS === 'android') doAndroidStoreFallback(scheme);
+                  else doIosStoreFallback(scheme);
                 }
               }).catch(() => {});
               return;
@@ -593,9 +609,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             }
             if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) {
               Linking.canOpenURL(url).then((can) => {
-                if (can) Linking.openURL(url).catch(() => {});
-                else {
-                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                const doAndroidStoreFallback = (scheme: string) => {
                   const pkgMap: Record<string, string> = {
                     'kakaotalk': 'com.kakao.talk',
                     'ispmobile': 'kvp.jjy.MispAndroid320',
@@ -607,9 +621,32 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                     'tmoney': 'com.lgt.tmoney',
                   };
                   const pkg = pkgMap[scheme];
-                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  if (pkg) {
+                    Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                  } else {
+                    Linking.openURL(`market://search?q=${encodeURIComponent(scheme)}`).catch(() => {});
+                  }
+                };
+                const doIosStoreFallback = (_scheme: string) => {
+                  try { setTimeout(() => Alert.alert('', '결제 앱 설치 후 이용해 주세요', [{ text: '확인' }]), 0); } catch {}
+                };
+                if (can) {
+                  Linking.openURL(url).catch(() => {
+                    const scheme = String(url.split(':')[0] || '').toLowerCase();
+                    if (Platform.OS === 'android') doAndroidStoreFallback(scheme);
+                    else doIosStoreFallback(scheme);
+                  });
+                } else {
+                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                  if (Platform.OS === 'android') doAndroidStoreFallback(scheme);
+                  else doIosStoreFallback(scheme);
                 }
-              }).catch(() => {});
+              }).catch(() => {
+                // iOS: canOpenURL 자체가 실패한 경우에도 알림
+                if (Platform.OS === 'ios') {
+                  try { setTimeout(() => Alert.alert('', '결제 앱 설치 후 이용해 주주세요', [{ text: '확인' }]), 0); } catch {}
+                }
+              });
               return;
             }
           };
