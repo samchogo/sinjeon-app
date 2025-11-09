@@ -1,7 +1,7 @@
+import { eventBus } from '@/lib/event-bus';
 import 'expo-router/entry';
 import { Platform } from 'react-native';
-import { eventBus } from './lib/event-bus';
-
+console.log('[INDEX] loaded, Platform=', Platform.OS);
 // Set background handler only when native Firebase module is available (dev build / production app)
 if (Platform.OS !== 'web') {
   (async () => {
@@ -43,8 +43,12 @@ if (Platform.OS !== 'web') {
 
 // Dev helper: emit a synthetic push-click from console
 try {
+  const root =
+    (typeof globalThis !== 'undefined' && globalThis) ||
+    (typeof global !== 'undefined' && global) ||
+    {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  global.__emitTestPush = (payload) => {
+  root.__emitTestPush = (payload) => {
     try {
       // eslint-disable-next-line no-console
       console.log('[PUSH][root][manual]', payload);
