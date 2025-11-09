@@ -239,23 +239,137 @@ export default function WebviewViewScreen() {
         onShouldStartLoadWithRequest={(req) => {
           const u = req?.url || '';
           if (u.startsWith('sulbingapp://close_webview')) { router.back(); return false; }
-          if (u.startsWith('intent://')) { Linking.openURL(u).catch(() => {}); return false; }
+          const openExternal = (url: string) => {
+            if (!url) return;
+            if (/^intent:/i.test(url)) {
+              Linking.openURL(url).catch(() => {
+                try {
+                  const schemeMatch = url.match(/#Intent;.*?scheme=([^;]+).*?;end/i);
+                  const scheme = schemeMatch && schemeMatch[1];
+                  const pathPart = url.replace(/^intent:\/\//i, '').split('#Intent')[0];
+                  if (scheme) {
+                    const schemeUrl = `${scheme}://${pathPart}`;
+                    Linking.canOpenURL(schemeUrl)
+                      .then((can) => {
+                        if (can) {
+                          Linking.openURL(schemeUrl).catch(() => {});
+                          return;
+                        }
+                        const fb = url.match(/;S\\.browser_fallback_url=([^;]+)/i);
+                        if (fb && fb[1]) {
+                          const fallback = decodeURIComponent(fb[1]);
+                          Linking.openURL(fallback).catch(() => {});
+                          return;
+                        }
+                        const m = url.match(/;package=([^;]+)/i);
+                        const pkg = m && m[1];
+                        if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                      })
+                      .catch(() => {
+                        const fb = url.match(/;S\\.browser_fallback_url=([^;]+)/i);
+                        if (fb && fb[1]) {
+                          const fallback = decodeURIComponent(fb[1]);
+                          Linking.openURL(fallback).catch(() => {});
+                          return;
+                        }
+                        const m = url.match(/;package=([^;]+)/i);
+                        const pkg = m && m[1];
+                        if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                      });
+                    return;
+                  }
+                  const fb = url.match(/;S\\.browser_fallback_url=([^;]+)/i);
+                  if (fb && fb[1]) {
+                    const fallback = decodeURIComponent(fb[1]);
+                    Linking.openURL(fallback).catch(() => {});
+                    return;
+                  }
+                  const m = url.match(/;package=([^;]+)/i);
+                  const pkg = m && m[1];
+                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                } catch {}
+              });
+              return;
+            }
+            if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) {
+              Linking.canOpenURL(url).then((can) => {
+                if (can) Linking.openURL(url).catch(() => {});
+                else {
+                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                  const pkgMap: Record<string, string> = {
+                    'kakaotalk': 'com.kakao.talk',
+                    'ispmobile': 'kvp.jjy.MispAndroid320',
+                    'kb-acp': 'com.kbcard.cxh.appcard',
+                    'kftc-bankpay': 'com.kftc.bankpay.android',
+                    'payco': 'com.nhnent.payapp',
+                    'samsungpay': 'com.samsung.android.spay',
+                    'lpayapp': 'com.lottemembers.android',
+                    'tmoney': 'com.lgt.tmoney',
+                  };
+                  const pkg = pkgMap[scheme];
+                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                }
+              }).catch(() => {});
+              return;
+            }
+          };
+          if (u.startsWith('intent://')) { openExternal(u); return false; }
           // Allow http/https in WebView; open other custom schemes externally
           if (/^https?:\/\//i.test(u)) return true;
-          if (/^[a-z][a-z0-9+.-]*:/i.test(u)) { Linking.openURL(u).catch(() => {}); return false; }
+          if (/^[a-z][a-z0-9+.-]*:/i.test(u)) { openExternal(u); return false; }
           return true;
         }}
         onOpenWindow={(e) => {
           const targetUrl = e?.nativeEvent?.targetUrl;
           if (!targetUrl) return;
-          if (targetUrl.startsWith('intent://')) { Linking.openURL(targetUrl).catch(() => {}); return; }
+          const openExternal = (url: string) => {
+            if (!url) return;
+            if (url.startsWith('intent://')) {
+              Linking.openURL(url).catch(() => {
+                try {
+                  const fb = url.match(/;S\\.browser_fallback_url=([^;]+)/i);
+                  if (fb && fb[1]) {
+                    const fallback = decodeURIComponent(fb[1]);
+                    Linking.openURL(fallback).catch(() => {});
+                    return;
+                  }
+                  const m = url.match(/;package=([^;]+)/i);
+                  const pkg = m && m[1];
+                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                } catch {}
+              });
+              return;
+            }
+            if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^https?:/i.test(url)) {
+              Linking.canOpenURL(url).then((can) => {
+                if (can) Linking.openURL(url).catch(() => {});
+                else {
+                  const scheme = String(url.split(':')[0] || '').toLowerCase();
+                  const pkgMap: Record<string, string> = {
+                    'kakaotalk': 'com.kakao.talk',
+                    'ispmobile': 'kvp.jjy.MispAndroid320',
+                    'kb-acp': 'com.kbcard.cxh.appcard',
+                    'kftc-bankpay': 'com.kftc.bankpay.android',
+                    'payco': 'com.nhnent.payapp',
+                    'samsungpay': 'com.samsung.android.spay',
+                    'lpayapp': 'com.lottemembers.android',
+                    'tmoney': 'com.lgt.tmoney',
+                  };
+                  const pkg = pkgMap[scheme];
+                  if (pkg) Linking.openURL(`market://details?id=${pkg}`).catch(() => {});
+                }
+              }).catch(() => {});
+              return;
+            }
+          };
+          if (targetUrl.startsWith('intent://')) { openExternal(targetUrl); return; }
           if (/^https?:\/\//i.test(targetUrl)) {
             const hide = /[?&]__no_header=1\b/.test(targetUrl);
             router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
             return;
           }
           // Non-http(s) schemes open externally
-          if (/^[a-z][a-z0-9+.-]*:/i.test(targetUrl)) { Linking.openURL(targetUrl).catch(() => {}); return; }
+          if (/^[a-z][a-z0-9+.-]*:/i.test(targetUrl)) { openExternal(targetUrl); return; }
         }}
         injectedJavaScriptBeforeContentLoaded={`${injectedRequestWindowJs}\n${injectedCloseWindowJs}\n${injectedFcmJs}\n${injectedCoopBridgeJs}\n${injectedTitleObserver}\n${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedKakaoShareJs}\n${injectedOpenExternalJs}\n${injectedAppVersionJs}\n${injectedOpenSettingsJs}\n${injectedBlockFirebaseJs}`}
         onMessage={(evt) => {
