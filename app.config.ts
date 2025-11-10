@@ -28,9 +28,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   // WebView URL per variant (override via env)
   const WEBVIEW_URL =
     process.env.EXPO_PUBLIC_WEBVIEW_URL ??
+    // (APP_VARIANT === 'prod'
+    //   ? 'https://sapp.sulbing.com'
+    //   : 'https://dev.d2htrwala9rb4i.amplifyapp.com');
     (APP_VARIANT === 'prod'
       ? 'https://sapp.sulbing.com'
-      : 'https://dev.d2htrwala9rb4i.amplifyapp.com');
+      : 'http://192.168.103.34:5137');
 
   return {
     ...config,
@@ -44,7 +47,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     newArchEnabled: true,
     ios: {
       bundleIdentifier: IOS_BUNDLE_ID,
-      supportsTablet: true,
+      supportsTablet: false,
       googleServicesFile: IOS_GOOGLE_SERVICES_FILE,
       buildNumber: '1000',
       entitlements: { 'aps-environment': 'development' },

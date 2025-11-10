@@ -4,6 +4,7 @@ type EventMap = {
   SCAN_RESULT: ScanResult;
   CONTACT_PICKED: { id: string; name: string; number: string };
   PUSH_CLICKED: { payload: any };
+  WINDOW_CHILD_CLOSED: { data: any };
 };
 
 class SimpleEventBus {

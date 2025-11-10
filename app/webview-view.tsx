@@ -69,7 +69,7 @@ export default function WebviewViewScreen() {
   const injectedOpenExternalJs = `(() => { try { window.openExternalLink = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_EXTERNAL_LINK', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
   const injectedFcmJs = `(() => { try { if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {}; if (!window.__FB_BLOCK_CTL) window.__FB_BLOCK_CTL = { on: false, t: null }; window.requestFcmToken = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; try { window.__FB_BLOCK_CTL.on = true; if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} } window.__FB_BLOCK_CTL.t = setTimeout(function(){ try { window.__FB_BLOCK_CTL.on = false; } catch(_){} }, 15000); } catch(_){} if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_FCM_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_FCM_CALLBACKS[id]; reject(new Error('FCM timeout')); }, 15000); window.__RN_FCM_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id })); }); }; window.__onNativeFcmToken = function(payload){ try { const { id, token, osTypeCd, error } = payload || {}; const cb = window.__RN_FCM_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (token) { var result = { token: token, osTypeCd: osTypeCd || ((/iPad|iPhone|iPod/i.test(navigator.userAgent)) ? 'IOS' : 'ANDROID') }; if (cb.resolve) cb.resolve(result); if (cb.success) cb.success(result); } else if (error) { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_FCM_CALLBACKS[id]; } catch(e){} finally { try { if (window.__FB_BLOCK_CTL) { window.__FB_BLOCK_CTL.on = false; if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} } } } catch(_){} } }; } catch(e){} })(); true;`;
   const injectedAppVersionJs = `(() => { try { if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {}; window.requestAppVersion = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000); window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); }); }; window.__onNativeAppVersion = function(payload){ try { const { id, version, error } = payload || {}; const cb = window.__RN_APPVER_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (!error) { if (cb.resolve) cb.resolve(version ?? null); if (cb.success) cb.success(version ?? null); } else { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_APPVER_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
-  const injectedCloseWindowJs = `(() => { try { const __origClose = window.close; window.close = function(){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW' })); } catch(e){} return undefined; }; window.requestWindowClose = function(){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW' })); } catch(e){} return true; }; } catch(e){} })(); true;`;
+  const injectedCloseWindowJs = `(() => { try { const __origClose = window.close; window.close = function(){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW', data: null })); } catch(e){} return undefined; }; window.requestWindowClose = function(data){ try { var payload = (data===undefined)?null:data; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW', data: payload })); } catch(e){} return true; }; } catch(e){} })(); true;`;
   const injectedBlockFirebaseJs = `(() => { try { 
     var isFirebaseScript = function(u){ try { var s=String(u||''); return /(?:^|\/)?firebase(?:-[a-z]+)?\.js(?:$|[?#])/i.test(s) || /gstatic\.com\/firebasejs/i.test(s); } catch(e){ return false; } };
     var oa = Node && Node.prototype && Node.prototype.appendChild; if (oa) { Node.prototype.appendChild = function(c){ try { var u=(c && (c.src||c.href))||''; if (isFirebaseScript(u)) { return c; } } catch(_){} return oa.apply(this, arguments); }; }
@@ -179,7 +179,15 @@ export default function WebviewViewScreen() {
         });
       } catch {}
     })();
-    return () => { try { off && off(); } catch {} };
+    return () => {
+      try { off && off(); } catch {}
+      // Fallback: if this view is being closed without explicit requestWindowClose, notify parent with null
+      try {
+        import('@/lib/event-bus').then(({ eventBus }) => {
+          try { (eventBus as any).emit('WINDOW_CHILD_CLOSED', { data: null }); } catch {}
+        }).catch(() => {});
+      } catch {}
+    };
   }, []);
 
   return (
@@ -475,6 +483,12 @@ export default function WebviewViewScreen() {
               return;
             }
             if (data.type === 'REQUEST_CLOSE_WINDOW') {
+              try {
+                const payload = (data && 'data' in data) ? (data as any).data : null;
+                import('@/lib/event-bus').then(({ eventBus }) => {
+                  try { (eventBus as any).emit('WINDOW_CHILD_CLOSED', { data: payload ?? null }); } catch {}
+                }).catch(() => {});
+              } catch {}
               router.back();
               return;
             }

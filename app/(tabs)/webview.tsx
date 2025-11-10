@@ -361,6 +361,16 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           )}); } }catch(e){} })(); true;`;
           webviewRef.current?.injectJavaScript(js);
         });
+        // Also listen for child window close events and forward to web callback
+        (eventBus as any).on('WINDOW_CHILD_CLOSED', (p: any) => {
+          try {
+            const data = p && 'data' in p ? p.data : null;
+            const js = `(function(){ try{ if (typeof window.onWindowClosed==='function'){ window.onWindowClosed(${JSON.stringify(
+              data ?? null
+            )}); } }catch(e){} })(); true;`;
+            webviewRef.current?.injectJavaScript(js);
+          } catch {}
+        });
       } catch {}
     })();
     return () => { try { off && off(); } catch {} };
