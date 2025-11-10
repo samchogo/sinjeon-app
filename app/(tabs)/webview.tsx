@@ -321,9 +321,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
   try {
     if (!window.AppInterfaceForCoop) window.AppInterfaceForCoop = {};
     var bridge = window.AppInterfaceForCoop;
-    if (typeof bridge.onmessage !== 'function') {
-      bridge.onmessage = function(){};
-    }
+    if (typeof bridge.onmessage !== 'function') { bridge.onmessage = function(){}; }
     bridge.postMessage = function(message){
       try {
         var msg = (message == null) ? '' : String(message);
@@ -332,6 +330,10 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
     };
     // alias for compatibility with different casing used by some pages
     try { if (typeof window.AppInterFaceForCoop === 'undefined') { window.AppInterFaceForCoop = window.AppInterfaceForCoop; } } catch(_){ }
+    // If page prefers window.AppInterfaceForCoopOnmessage, mirror it to bridge.onmessage when not set
+    try { if (typeof window.AppInterfaceForCoopOnmessage === 'function' && typeof bridge.onmessage !== 'function') { bridge.onmessage = window.AppInterfaceForCoopOnmessage; } } catch(_){}
+    // Also expose a global identifier so typeof AppInterfaceForCoop checks pass
+    try { if (typeof AppInterfaceForCoop === 'undefined') { Function('var AppInterfaceForCoop = window.AppInterfaceForCoop;')(); } } catch(_){}
   } catch(e){}
 })(); true;`,
     []
@@ -846,9 +848,13 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                 const jsonStr = JSON.stringify(respObj);
                 // eslint-disable-next-line no-console
                 console.log('[COOP][tabs][send]', respObj);
-                const js = `(function(){ try{ if (window.AppInterfaceForCoop && typeof window.AppInterfaceForCoop.onmessage==='function'){ window.AppInterfaceForCoop.onmessage({ data: ${JSON.stringify(
-                  jsonStr
-                )} }); } } catch(e){} })(); true;`;
+                const js = `(function(){ try{
+                  var ev = { data: ${JSON.stringify(jsonStr)} };
+                  var h1 = (window.AppInterfaceForCoop && typeof window.AppInterfaceForCoop.onmessage==='function') ? window.AppInterfaceForCoop.onmessage : null;
+                  var h2 = (typeof window.AppInterfaceForCoopOnmessage==='function') ? window.AppInterfaceForCoopOnmessage : null;
+                  if (h1){ try{ h1(ev); }catch(e){} }
+                  if (h2){ try{ h2(ev); }catch(e){} }
+                } catch(e){} })(); true;`;
                 webviewRef.current?.injectJavaScript(js);
               };
               if (reqType === 'REQ_DATA_CONTACT_INFO') {

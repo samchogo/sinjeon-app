@@ -78,7 +78,23 @@ export default function WebviewViewScreen() {
     }
     if (!('firebase' in window)) { Object.defineProperty(window, 'firebase', { configurable: true, get: function(){ return window.__firebaseShim || (window.__firebaseShim = { apps: [], initializeApp: function(){ return {}; }, app: function(){ return {}; } }); }, set: function(_){} }); }
   } catch(e) {} })(); true;`;
-  const injectedCoopBridgeJs = `(() => { try { if (!window.AppInterfaceForCoop) window.AppInterfaceForCoop = {}; var bridge = window.AppInterfaceForCoop; if (typeof bridge.onmessage !== 'function') { bridge.onmessage = function(){}; } bridge.postMessage = function(message){ try { var msg = (message == null) ? '' : String(message); window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOP_BRIDGE', payload: msg })); } catch(e){} }; try { if (typeof window.AppInterFaceForCoop === 'undefined') { window.AppInterFaceForCoop = window.AppInterfaceForCoop; } } catch(_){} } catch(e){} })(); true;`;
+  const injectedCoopBridgeJs = `(() => { try { 
+    if (!window.AppInterfaceForCoop) window.AppInterfaceForCoop = {}; 
+    var bridge = window.AppInterfaceForCoop; 
+    if (typeof bridge.onmessage !== 'function') { bridge.onmessage = function(){}; } 
+    bridge.postMessage = function(message){ 
+      try { 
+        var msg = (message == null) ? '' : String(message); 
+        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOP_BRIDGE', payload: msg })); 
+      } catch(e){} 
+    }; 
+    // Provide compatibility alias with different casing
+    try { if (typeof window.AppInterFaceForCoop === 'undefined') { window.AppInterFaceForCoop = window.AppInterfaceForCoop; } } catch(_){} 
+    // If page prefers window.AppInterfaceForCoopOnmessage, mirror it to bridge.onmessage when not set
+    try { if (typeof window.AppInterfaceForCoopOnmessage === 'function' && typeof bridge.onmessage !== 'function') { bridge.onmessage = window.AppInterfaceForCoopOnmessage; } } catch(_){}
+    // Also expose a global identifier so typeof AppInterfaceForCoop checks pass
+    try { if (typeof AppInterfaceForCoop === 'undefined') { Function('var AppInterfaceForCoop = window.AppInterfaceForCoop;')(); } } catch(_){} 
+  } catch(e){} })(); true;`;
   const injectedOpenSettingsJs = `(() => { try { if (!window.__RN_SETTINGS_CALLBACKS) window.__RN_SETTINGS_CALLBACKS = {}; window.requestOpenAppSettings = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_SETTINGS_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_OPEN_SETTINGS', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_SETTINGS_CALLBACKS[id]; reject(new Error('OPEN_SETTINGS timeout')); }, 10000); window.__RN_SETTINGS_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_OPEN_SETTINGS', id })); }); }; window.__onNativeOpenSettings = function(payload){ try { const { id, ok, error } = payload || {}; const cb = window.__RN_SETTINGS_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (ok) { if (cb.resolve) cb.resolve(true); if (cb.success) cb.success(true); } else if (error) { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_SETTINGS_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
   // Helper to request native-side window open with optional title/noheader via query
   const injectedRequestWindowJs = `\n  (() => { try {\n    window.requestWindowOpen = function(url, optsOrTitle, maybeNoHeader){\n      try {\n        if (!url) return false;\n        var base = (typeof location!=='undefined')?location.href:undefined;\n        var u; try { u = new URL(String(url), base); } catch(e){ return false; }\n        var title=''; var noheader=false;\n        if (typeof optsOrTitle==='string'){ title=optsOrTitle||''; noheader=!!maybeNoHeader; }\n        else if (optsOrTitle && typeof optsOrTitle==='object'){ title=String(optsOrTitle.title||''); noheader=!!optsOrTitle.noheader; }\n        if (title){ try { u.searchParams.set('__title', encodeURIComponent(String(title))); } catch(_){ u.searchParams.set('__title', String(title)); } }\n        if (noheader){ u.searchParams.set('__no_header','1'); }\n        var finalUrl = u.toString();\n        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage){\n          window.ReactNativeWebView.postMessage(JSON.stringify({ type:'OPEN_WINDOW', url: finalUrl }));\n          return true;\n        }\n        try { location.assign(finalUrl); return true; } catch(_){ return false; }\n      } catch(e){ return false; }\n    };\n  } catch(e){} })();\n  `; 
@@ -502,7 +518,13 @@ export default function WebviewViewScreen() {
                 const jsonStr = JSON.stringify(respObj);
                 // eslint-disable-next-line no-console
                 console.log('[COOP][view][send]', respObj);
-                const js = `(function(){ try{ if (window.AppInterfaceForCoop && typeof window.AppInterfaceForCoop.onmessage==='function'){ window.AppInterfaceForCoop.onmessage({ data: ${JSON.stringify(jsonStr)} }); } } catch(e){} })(); true;`;
+                const js = `(function(){ try{
+                  var ev = { data: ${JSON.stringify(jsonStr)} };
+                  var h1 = (window.AppInterfaceForCoop && typeof window.AppInterfaceForCoop.onmessage==='function') ? window.AppInterfaceForCoop.onmessage : null;
+                  var h2 = (typeof window.AppInterfaceForCoopOnmessage==='function') ? window.AppInterfaceForCoopOnmessage : null;
+                  if (h1){ try{ h1(ev); }catch(e){} }
+                  if (h2){ try{ h2(ev); }catch(e){} }
+                } catch(e){} })(); true;`;
                 webviewRef.current?.injectJavaScript(js);
               };
               (async () => {
