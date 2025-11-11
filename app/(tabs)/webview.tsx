@@ -12,6 +12,7 @@ import { WebView } from 'react-native-webview';
 
 // Serialize iOS FCM token requests to avoid race with remote message registration
 let __IOS_FCM_REQUEST_IN_FLIGHT = false;
+let __ALBUM_IN_FLIGHT_TABS = false;
 
 export default function WebviewScreen() {
   const webviewUrl = (Constants?.expoConfig?.extra as any)?.WEBVIEW_URL ?? process.env.EXPO_PUBLIC_WEBVIEW_URL ?? '';
@@ -840,31 +841,43 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               try {
                 // eslint-disable-next-line no-console
                 console.log('[ALBUM][tabs] received REQUEST_ALBUM');
+                if (__ALBUM_IN_FLIGHT_TABS) {
+                  console.log('[ALBUM][tabs] skip: already in flight');
+                  return;
+                }
+                __ALBUM_IN_FLIGHT_TABS = true;
                 const ImagePicker = await import('expo-image-picker');
                 const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 // eslint-disable-next-line no-console
                 console.log('[ALBUM][tabs] permission', perm?.granted);
                 if (!perm.granted) {
                   webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                  __ALBUM_IN_FLIGHT_TABS = false;
                   return;
                 }
                 const picked = await ImagePicker.launchImageLibraryAsync({
                   mediaTypes: ImagePicker.MediaTypeOptions.Images,
                   allowsEditing: false,
-                  quality: 1,
+                  quality: 0.7,
                   base64: true,
                   exif: false,
                   selectionLimit: 1,
+                  allowsMultipleSelection: false,
+                  // iOS: force full-screen to ensure clear dismissal with Cancel (X) and selection
+                  presentationStyle: 'fullScreen' as any,
                 });
                 // eslint-disable-next-line no-console
                 console.log('[ALBUM][tabs] picked', picked && (picked as any).canceled === false ? 'ok' : 'cancel');
                 if (!picked || (picked as any).canceled || !picked.assets || picked.assets.length === 0) {
                   webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                  __ALBUM_IN_FLIGHT_TABS = false;
                   return;
                 }
                 const asset = picked.assets[0] || {};
                 // eslint-disable-next-line no-console
                 console.log('[ALBUM][tabs] asset', { uri: (asset as any)?.uri, w: (asset as any)?.width, h: (asset as any)?.height });
+                const b64: string | null = (asset as any)?.base64 ?? null;
+                try { console.log('[ALBUM][tabs] base64 length', b64 ? b64.length : 0); } catch {}
                 const photo = {
                   uri: asset.uri || null,
                   width: 'width' in asset ? (asset as any).width : null,
@@ -873,14 +886,16 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                   fileSize: (asset as any)?.fileSize ?? null,
                   mimeType: (asset as any)?.mimeType ?? null,
                   type: 'image',
-                  base64: (asset as any)?.base64 ?? null,
+                  base64: b64,
                 };
-                const js = `(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){} })(); true;`;
+                const js = `(function(){ try{ var has = (typeof window.onAlbumPhoto==='function'); if (!has) { try{ console.log('[ALBUM][web] onAlbumPhoto not defined'); }catch(_){} } if (has) { window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){ try{ console.log('[ALBUM][web] onAlbumPhoto error', e&&e.message); }catch(_){ } } })(); true;`;
                 webviewRef.current?.injectJavaScript(js);
               } catch (e: any) {
                 // eslint-disable-next-line no-console
                 console.log('[ALBUM][tabs] error', e?.message);
                 webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+              } finally {
+                __ALBUM_IN_FLIGHT_TABS = false;
               }
               return;
             } else if (data.type === 'REQUEST_APP_VERSION') {

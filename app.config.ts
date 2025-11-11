@@ -55,6 +55,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         CFBundleDisplayName: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
         NSCameraUsageDescription: '바코드 스캔을 위해 카메라 접근 권한이 필요합니다.',
         NSContactsUsageDescription: '주소록에서 연락처를 선택하기 위해 접근 권한이 필요합니다.',
+        NSPhotoLibraryUsageDescription: '사진을 선택하기 위해 사진 라이브러리 접근 권한이 필요합니다.',
         NSLocationWhenInUseUsageDescription: '서비스 제공을 위해 앱 사용 중 위치 접근 권한이 필요합니다.',
         ITSAppUsesNonExemptEncryption: false,
         LSApplicationQueriesSchemes: [
@@ -108,10 +109,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       package: ANDROID_PACKAGE,
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
       versionCode: 1000,
-      notification: {
-        icon: './assets/images/notification-icon.png',
-        color: '#863534',
-      },
       adaptiveIcon: {
         backgroundColor: '#863534',
         foregroundImage: './assets/images/android-icon-foreground.png',
@@ -124,6 +121,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     web: {
       output: 'static',
       favicon: './assets/images/favicon.png',
+    },
+    notification: {
+      icon: './assets/images/notification-icon.png',
+      color: '#863534',
     },
     plugins: [
       'expo-router',

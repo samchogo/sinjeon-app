@@ -12,6 +12,7 @@ import { WebView } from 'react-native-webview';
 
 // Serialize iOS FCM token requests to avoid race with remote message registration (secondary webview)
 let __IOS_FCM_REQUEST_IN_FLIGHT_VIEW = false;
+let __ALBUM_IN_FLIGHT_VIEW = false;
 
 export default function WebviewViewScreen() {
   const { url, noHeader } = useLocalSearchParams<{ url?: string; noHeader?: string }>();
@@ -504,31 +505,42 @@ export default function WebviewViewScreen() {
                 try {
                   // eslint-disable-next-line no-console
                   console.log('[ALBUM][view] received REQUEST_ALBUM');
+                  if (__ALBUM_IN_FLIGHT_VIEW) {
+                    console.log('[ALBUM][view] skip: already in flight');
+                    return;
+                  }
+                  __ALBUM_IN_FLIGHT_VIEW = true;
                   const ImagePicker = await import('expo-image-picker');
                   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                   // eslint-disable-next-line no-console
                   console.log('[ALBUM][view] permission', perm?.granted);
                   if (!perm.granted) {
                     webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                    __ALBUM_IN_FLIGHT_VIEW = false;
                     return;
                   }
                   const picked = await ImagePicker.launchImageLibraryAsync({
                     mediaTypes: ImagePicker.MediaTypeOptions.Images,
                     allowsEditing: false,
-                    quality: 1,
+                    quality: 0.7,
                     base64: true,
                     exif: false,
                     selectionLimit: 1,
+                    allowsMultipleSelection: false,
+                    presentationStyle: 'fullScreen' as any,
                   });
                   // eslint-disable-next-line no-console
                   console.log('[ALBUM][view] picked', picked && (picked as any).canceled === false ? 'ok' : 'cancel');
                   if (!picked || (picked as any).canceled || !picked.assets || picked.assets.length === 0) {
                     webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                    __ALBUM_IN_FLIGHT_VIEW = false;
                     return;
                   }
                   const asset: any = picked.assets[0] || {};
                   // eslint-disable-next-line no-console
                   console.log('[ALBUM][view] asset', { uri: asset?.uri, w: asset?.width, h: asset?.height });
+                  const b64: string | null = asset?.base64 ?? null;
+                  try { console.log('[ALBUM][view] base64 length', b64 ? b64.length : 0); } catch {}
                   const photo = {
                     uri: asset.uri || null,
                     width: 'width' in asset ? asset.width : null,
@@ -537,14 +549,16 @@ export default function WebviewViewScreen() {
                     fileSize: asset?.fileSize ?? null,
                     mimeType: asset?.mimeType ?? null,
                     type: 'image',
-                    base64: asset?.base64 ?? null,
+                    base64: b64,
                   };
-                  const js = `(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){} })(); true;`;
+                  const js = `(function(){ try{ var has = (typeof window.onAlbumPhoto==='function'); if (!has) { try{ console.log('[ALBUM][web] onAlbumPhoto not defined'); }catch(_){} } if (has) { window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){ try{ console.log('[ALBUM][web] onAlbumPhoto error', e&&e.message); }catch(_){ } } })(); true;`;
                   webviewRef.current?.injectJavaScript(js);
                 } catch {
                   // eslint-disable-next-line no-console
                   console.log('[ALBUM][view] error');
                   webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                } finally {
+                  __ALBUM_IN_FLIGHT_VIEW = false;
                 }
               })();
               return;
