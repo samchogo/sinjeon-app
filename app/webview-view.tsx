@@ -67,6 +67,7 @@ export default function WebviewViewScreen() {
   })(); true;`;
   const injectedKakaoShareJs = `(() => { try { window.requestShareKakao = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_SHARE_KAKAO', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
   const injectedOpenExternalJs = `(() => { try { window.openExternalLink = function(url){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_EXTERNAL_LINK', url: String(url||'') })); } catch(e){} }; } catch(e){} })(); true;`;
+  const injectedAlbumJs = `(() => { try { window.requestAlbum = function(){ try { if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_ALBUM' })); return true; } } catch(e){} return false; }; } catch(e){} })(); true;`;
   const injectedFcmJs = `(() => { try { if (!window.__RN_FCM_CALLBACKS) window.__RN_FCM_CALLBACKS = {}; if (!window.__FB_BLOCK_CTL) window.__FB_BLOCK_CTL = { on: false, t: null }; window.requestFcmToken = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; try { window.__FB_BLOCK_CTL.on = true; if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} } window.__FB_BLOCK_CTL.t = setTimeout(function(){ try { window.__FB_BLOCK_CTL.on = false; } catch(_){} }, 15000); } catch(_){} if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_FCM_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_FCM_CALLBACKS[id]; reject(new Error('FCM timeout')); }, 15000); window.__RN_FCM_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id })); }); }; window.__onNativeFcmToken = function(payload){ try { const { id, token, osTypeCd, error } = payload || {}; const cb = window.__RN_FCM_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (token) { var result = { token: token, osTypeCd: osTypeCd || ((/iPad|iPhone|iPod/i.test(navigator.userAgent)) ? 'IOS' : 'ANDROID') }; if (cb.resolve) cb.resolve(result); if (cb.success) cb.success(result); } else if (error) { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_FCM_CALLBACKS[id]; } catch(e){} finally { try { if (window.__FB_BLOCK_CTL) { window.__FB_BLOCK_CTL.on = false; if (window.__FB_BLOCK_CTL.t) { try { clearTimeout(window.__FB_BLOCK_CTL.t); } catch(_){} } } } catch(_){} } }; } catch(e){} })(); true;`;
   const injectedAppVersionJs = `(() => { try { if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {}; window.requestAppVersion = function(success, error){ const id = String(Date.now()) + '_' + Math.random().toString(36).slice(2); const entry = { success: null, error: null, resolve: null, reject: null, t: null }; if (typeof success === 'function' || typeof error === 'function') { entry.success = typeof success === 'function' ? success : null; entry.error = typeof error === 'function' ? error : null; window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); return; } return new Promise((resolve, reject) => { entry.resolve = resolve; entry.reject = reject; entry.t = setTimeout(() => { delete window.__RN_APPVER_CALLBACKS[id]; reject(new Error('APP_VERSION timeout')); }, 10000); window.__RN_APPVER_CALLBACKS[id] = entry; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_APP_VERSION', id })); }); }; window.__onNativeAppVersion = function(payload){ try { const { id, version, error } = payload || {}; const cb = window.__RN_APPVER_CALLBACKS[id]; if (!cb) return; if (cb.t) { try { clearTimeout(cb.t); } catch(_){} } if (!error) { if (cb.resolve) cb.resolve(version ?? null); if (cb.success) cb.success(version ?? null); } else { if (cb.reject) cb.reject(error); if (cb.error) cb.error(error); } delete window.__RN_APPVER_CALLBACKS[id]; } catch(e){} }; } catch(e){} })(); true;`;
   const injectedCloseWindowJs = `(() => { try { const __origClose = window.close; window.close = function(){ try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW', data: null })); } catch(e){} return undefined; }; window.requestWindowClose = function(data){ try { var payload = (data===undefined)?null:data; window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_CLOSE_WINDOW', data: payload })); } catch(e){} return true; }; } catch(e){} })(); true;`;
@@ -444,7 +445,7 @@ export default function WebviewViewScreen() {
           // Non-http(s) schemes open externally
           if (/^[a-z][a-z0-9+.-]*:/i.test(targetUrl)) { openExternal(targetUrl); return; }
         }}
-        injectedJavaScriptBeforeContentLoaded={`${injectedRequestWindowJs}\n${injectedCloseWindowJs}\n${injectedFcmJs}\n${injectedCoopBridgeJs}\n${injectedTitleObserver}\n${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedKakaoShareJs}\n${injectedOpenExternalJs}\n${injectedAppVersionJs}\n${injectedOpenSettingsJs}\n${injectedBlockFirebaseJs}`}
+        injectedJavaScriptBeforeContentLoaded={`${injectedRequestWindowJs}\n${injectedCloseWindowJs}\n${injectedFcmJs}\n${injectedCoopBridgeJs}\n${injectedTitleObserver}\n${injectedGeolocationJs}\n${injectedWindowOpenJs}\n${injectedKakaoShareJs}\n${injectedOpenExternalJs}\n${injectedAlbumJs}\n${injectedAppVersionJs}\n${injectedOpenSettingsJs}\n${injectedBlockFirebaseJs}`}
         onMessage={(evt) => {
           try {
             const data = JSON.parse(evt.nativeEvent.data || '{}');
@@ -496,6 +497,46 @@ export default function WebviewViewScreen() {
             if (data.type === 'OPEN_EXTERNAL_LINK' && data.url) {
               const u = String(data.url);
               Linking.openURL(u).catch(() => {});
+              return;
+            }
+            if (data.type === 'REQUEST_ALBUM') {
+              (async () => {
+                try {
+                  const ImagePicker = await import('expo-image-picker');
+                  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (!perm.granted) {
+                    webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                    return;
+                  }
+                  const picked = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    allowsEditing: false,
+                    quality: 1,
+                    base64: true,
+                    exif: false,
+                    selectionLimit: 1,
+                  });
+                  if (!picked || (picked as any).canceled || !picked.assets || picked.assets.length === 0) {
+                    webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                    return;
+                  }
+                  const asset: any = picked.assets[0] || {};
+                  const photo = {
+                    uri: asset.uri || null,
+                    width: 'width' in asset ? asset.width : null,
+                    height: 'height' in asset ? asset.height : null,
+                    fileName: asset?.fileName ?? null,
+                    fileSize: asset?.fileSize ?? null,
+                    mimeType: asset?.mimeType ?? null,
+                    type: 'image',
+                    base64: asset?.base64 ?? null,
+                  };
+                  const js = `(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){} })(); true;`;
+                  webviewRef.current?.injectJavaScript(js);
+                } catch {
+                  webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                }
+              })();
               return;
             }
             if (data.type === 'REQUEST_CLOSE_WINDOW') {

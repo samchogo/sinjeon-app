@@ -152,6 +152,19 @@ export default function WebviewScreen() {
     };
   } catch(e){}
 })(); true;`, []);
+  const injectedAlbumJs = useMemo(() => `(() => {
+  try {
+    window.requestAlbum = function(){
+      try {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_ALBUM' }));
+          return true;
+        }
+      } catch(e){}
+      return false;
+    };
+  } catch(e){}
+})(); true;`, []);
   const injectedAppVersionJs = useMemo(() => `(() => {
   try {
     if (!window.__RN_APPVER_CALLBACKS) window.__RN_APPVER_CALLBACKS = {};
@@ -422,6 +435,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             webviewRef.current?.injectJavaScript(injectedCoopBridgeJs);
             webviewRef.current?.injectJavaScript(injectedKakaoShareJs);
             webviewRef.current?.injectJavaScript(injectedOpenExternalJs);
+            webviewRef.current?.injectJavaScript(injectedAlbumJs);
             webviewRef.current?.injectJavaScript(injectedOpenSettingsJs);
             webviewRef.current?.injectJavaScript(injectedRequestWindowJs);
             // also check root buffer (in case event fired before listener attached)
@@ -814,6 +828,43 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             } else if (data.type === 'OPEN_EXTERNAL_LINK' && data.url) {
               const u = String(data.url);
               Linking.openURL(u).catch(() => {});
+              return;
+            } else if (data.type === 'REQUEST_ALBUM') {
+              try {
+                const ImagePicker = await import('expo-image-picker');
+                const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (!perm.granted) {
+                  webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                  return;
+                }
+                const picked = await ImagePicker.launchImageLibraryAsync({
+                  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                  allowsEditing: false,
+                  quality: 1,
+                  base64: true,
+                  exif: false,
+                  selectionLimit: 1,
+                });
+                if (!picked || (picked as any).canceled || !picked.assets || picked.assets.length === 0) {
+                  webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+                  return;
+                }
+                const asset = picked.assets[0] || {};
+                const photo = {
+                  uri: asset.uri || null,
+                  width: 'width' in asset ? (asset as any).width : null,
+                  height: 'height' in asset ? (asset as any).height : null,
+                  fileName: (asset as any)?.fileName ?? null,
+                  fileSize: (asset as any)?.fileSize ?? null,
+                  mimeType: (asset as any)?.mimeType ?? null,
+                  type: 'image',
+                  base64: (asset as any)?.base64 ?? null,
+                };
+                const js = `(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){} })(); true;`;
+                webviewRef.current?.injectJavaScript(js);
+              } catch (e: any) {
+                webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
+              }
               return;
             } else if (data.type === 'REQUEST_APP_VERSION') {
               const id = String(data.id);
