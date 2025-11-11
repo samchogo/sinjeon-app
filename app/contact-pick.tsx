@@ -7,6 +7,26 @@ import React from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+// Hangul initial consonant search support
+const CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+const H_BASE = 0xac00;
+const H_END = 0xd7a3;
+const H_CHOS = 21 * 28;
+function toChosung(text: string): string {
+  if (!text) return '';
+  let out = '';
+  for (const ch of text) {
+    const code = ch.charCodeAt(0);
+    if (code >= H_BASE && code <= H_END) {
+      const idx = Math.floor((code - H_BASE) / H_CHOS);
+      out += CHO[idx] || ch;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
 export default function ContactPickScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -43,10 +63,27 @@ export default function ContactPickScreen() {
   };
 
   const filtered = React.useMemo(() => {
-    const query = q.trim().toLowerCase();
-    if (!query) return items;
+    const queryRaw = q.trim();
+    const query = queryRaw.toLowerCase();
+    if (!queryRaw) return items;
     return items.filter((c) => (c.name || '').toLowerCase().includes(query) || (c.phoneNumbers?.some(p => (p.number||'').toLowerCase().includes(query))));
   }, [items, q]);
+
+  // Extend filtered with Hangul initial consonant match
+  const filteredWithChosung = React.useMemo(() => {
+    const queryRaw = q.trim();
+    if (!queryRaw) return filtered;
+    // If already matched by filtered, keep as is; else add items whose chosung matches
+    const setIds = new Set(filtered.map((it: any) => it?.id));
+    const extras = items.filter((c) => {
+      const idAny = (c as any)?.id;
+      if (setIds.has(idAny)) return false;
+      const name = (c.name || '');
+      const cho = toChosung(name);
+      return cho.includes(queryRaw);
+    });
+    return filtered.concat(extras);
+  }, [filtered, items, q]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -56,14 +93,14 @@ export default function ContactPickScreen() {
           onChangeText={setQ}
           placeholder="이름 또는 번호 검색"
           placeholderTextColor={colorScheme === 'dark' ? '#9AA0A6' : '#9E9E9E'}
-          style={[styles.search, { color: colorScheme === 'dark' ? Colors.dark.text : Colors.light.text }]}
+          style={[styles.search, { color: colorScheme === 'dark' ? '#000' : Colors.light.text }]}
         />
       </View>
       {loading ? (
         <View style={styles.centered}><Text>불러오는 중…</Text></View>
       ) : (
         <FlatList
-          data={filtered}
+          data={filteredWithChosung}
           keyExtractor={(item, idx) => String((item as any)?.id ?? idx)}
           renderItem={({ item }) => (
             <Pressable style={styles.item} onPress={() => onSelect(item)}>
