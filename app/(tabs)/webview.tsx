@@ -154,15 +154,21 @@ export default function WebviewScreen() {
 })(); true;`, []);
   const injectedAlbumJs = useMemo(() => `(() => {
   try {
-    window.requestAlbum = function(){
-      try {
-        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_ALBUM' }));
-          return true;
-        }
-      } catch(e){}
-      return false;
-    };
+    if (typeof window.requestAlbum !== 'function') {
+      window.requestAlbum = function(){
+        try {
+          console.log && console.log('[ALBUM][web] requestAlbum() called');
+        } catch(_){}
+        try {
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_ALBUM' }));
+            return true;
+          }
+        } catch(e){}
+        return false;
+      };
+      try { console.log && console.log('[ALBUM][web] injected'); } catch(_){}
+    }
   } catch(e){}
 })(); true;`, []);
   const injectedAppVersionJs = useMemo(() => `(() => {
@@ -323,6 +329,7 @@ ${injectedFcmJs}
 ${injectedAllJs}
 ${injectedKakaoShareJs}
 ${injectedOpenExternalJs}
+${injectedAlbumJs}
 ${injectedAppVersionJs}
 ${injectedOpenSettingsJs}
 ${injectedRequestWindowJs}
@@ -831,8 +838,12 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               return;
             } else if (data.type === 'REQUEST_ALBUM') {
               try {
+                // eslint-disable-next-line no-console
+                console.log('[ALBUM][tabs] received REQUEST_ALBUM');
                 const ImagePicker = await import('expo-image-picker');
                 const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                // eslint-disable-next-line no-console
+                console.log('[ALBUM][tabs] permission', perm?.granted);
                 if (!perm.granted) {
                   webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
                   return;
@@ -845,11 +856,15 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                   exif: false,
                   selectionLimit: 1,
                 });
+                // eslint-disable-next-line no-console
+                console.log('[ALBUM][tabs] picked', picked && (picked as any).canceled === false ? 'ok' : 'cancel');
                 if (!picked || (picked as any).canceled || !picked.assets || picked.assets.length === 0) {
                   webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
                   return;
                 }
                 const asset = picked.assets[0] || {};
+                // eslint-disable-next-line no-console
+                console.log('[ALBUM][tabs] asset', { uri: (asset as any)?.uri, w: (asset as any)?.width, h: (asset as any)?.height });
                 const photo = {
                   uri: asset.uri || null,
                   width: 'width' in asset ? (asset as any).width : null,
@@ -863,6 +878,8 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                 const js = `(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(${JSON.stringify(photo)}); } }catch(e){} })(); true;`;
                 webviewRef.current?.injectJavaScript(js);
               } catch (e: any) {
+                // eslint-disable-next-line no-console
+                console.log('[ALBUM][tabs] error', e?.message);
                 webviewRef.current?.injectJavaScript(`(function(){ try{ if (typeof window.onAlbumPhoto==='function'){ window.onAlbumPhoto(null); } }catch(e){} })(); true;`);
               }
               return;
