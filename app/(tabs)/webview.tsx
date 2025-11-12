@@ -1,3 +1,4 @@
+import NetInfo from '@react-native-community/netinfo';
 import { getApps } from '@react-native-firebase/app';
 import messaging from '@react-native-firebase/messaging';
 import { useFocusEffect } from '@react-navigation/native';
@@ -6,7 +7,7 @@ import * as Linking from 'expo-linking';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo } from 'react';
-import { Alert, BackHandler, PermissionsAndroid, Platform, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, PermissionsAndroid, Platform, Pressable, Linking as RNLinking, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
@@ -22,6 +23,8 @@ export default function WebviewScreen() {
   const isReadyRef = React.useRef(false);
   const pendingPushRef = React.useRef<any[]>([]);
   const pendingDeeplinkRef = React.useRef<string[]>([]);
+  const [isOffline, setIsOffline] = React.useState<boolean>(false);
+  const [hadLoadError, setHadLoadError] = React.useState<boolean>(false);
   const injectedGeolocationJs = useMemo(() => `(() => {
   try {
     if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }
@@ -444,6 +447,34 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
     }, [canGoBack])
   );
 
+  // Network status listener
+  React.useEffect(() => {
+    const sub = NetInfo.addEventListener((state) => {
+      const offline = state.isInternetReachable === false || state.type === 'none';
+      setIsOffline(!!offline);
+      if (!offline && hadLoadError) {
+        setHadLoadError(false);
+        try { webviewRef.current?.reload(); } catch {}
+      }
+    });
+    return () => { try { sub(); } catch {} };
+  }, [hadLoadError]);
+
+  // Optional: background auto-retry when offline or load error
+  React.useEffect(() => {
+    if (!(isOffline || hadLoadError)) return;
+    const t = setInterval(() => {
+      NetInfo.fetch().then((s) => {
+        const offline = s.isInternetReachable === false || s.type === 'none';
+        if (!offline) {
+          setHadLoadError(false);
+          try { webviewRef.current?.reload(); } catch {}
+        }
+      }).catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, [isOffline, hadLoadError]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <WebView
@@ -451,6 +482,8 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         source={{ uri: webviewUrl }}
         style={styles.webview}
         onNavigationStateChange={(state) => setCanGoBack(state.canGoBack)}
+        onError={() => setHadLoadError(true)}
+        onHttpError={() => setHadLoadError(true)}
         injectedJavaScriptForMainFrameOnly={false}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         onLoad={() => {
@@ -511,6 +544,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         thirdPartyCookiesEnabled
         setSupportMultipleWindows={false}
         onShouldStartLoadWithRequest={(req) => {
+          if (isOffline) return false;
           // Intercept window.open/new-window navigations
           if (req && req.url && req.isTopFrame === false) {
             // Allow loading in the same WebView (no new screen)
@@ -1066,6 +1100,20 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           }
         }}
       />
+
+      {(isOffline || hadLoadError) && (
+        <View style={styles.offlineOverlay}>
+          <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다. 네트워크 연결을 확인해 주세요.</Text>
+          <View style={styles.offlineActions}>
+            <Pressable onPress={() => { try { webviewRef.current?.reload(); } catch {} }} style={styles.offlineBtn}>
+              <Text style={{ color: '#fff' }}>다시 시도</Text>
+            </Pressable>
+            <Pressable onPress={() => RNLinking.openSettings().catch(() => {})} style={styles.offlineBtnSecondary}>
+              <Text style={{ color: '#fff' }}>설정 열기</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1086,6 +1134,40 @@ const styles = StyleSheet.create({
   message: {
     textAlign: 'center',
     fontSize: 16,
+  },
+  offlineOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  offlineText: {
+    fontSize: 16,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  offlineActions: {
+    flexDirection: 'row',
+    gap: 12,
+  } as any,
+  offlineBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#863534',
+    borderRadius: 6,
+    marginHorizontal: 6,
+  },
+  offlineBtnSecondary: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#444',
+    borderRadius: 6,
+    marginHorizontal: 6,
   },
 });
 
