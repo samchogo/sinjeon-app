@@ -21,6 +21,7 @@ export default function WebviewScreen() {
   const router = useRouter();
   const isReadyRef = React.useRef(false);
   const pendingPushRef = React.useRef<any[]>([]);
+  const pendingDeeplinkRef = React.useRef<string[]>([]);
   const injectedGeolocationJs = useMemo(() => `(() => {
   try {
     if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }
@@ -394,6 +395,24 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             webviewRef.current?.injectJavaScript(js);
           } catch {}
         });
+        // Deeplink payload delivery for window.handleDeeplink
+        (eventBus as any).on('DEEPLINK_WEB', (p: any) => {
+          try {
+            const payload = p && 'payload' in p ? String(p.payload) : '';
+            if (!(isReadyRef as any).current) {
+              (pendingDeeplinkRef as any).current.push(payload);
+              // eslint-disable-next-line no-console
+              console.log('[DL][tabs][buffer]', payload);
+              return;
+            }
+            // eslint-disable-next-line no-console
+            console.log('[DL][tabs][inject]', payload);
+            const js = `(function(){ try{ var v=${JSON.stringify(
+              String(payload)
+            )}; var __t=0; function __call(){ try{ var has=(typeof window.handleDeeplink==='function'); try{ console.log('[DL][web] try', __t+1, 'has=', has); }catch(_){}; if (has){ try{ window.handleDeeplink(v); try{ console.log('[DL][web] done'); }catch(_){ } }catch(e){ try{ console.log('[DL][web] error', e&&e.message); }catch(_){ } } } else if (++__t<3){ setTimeout(__call, 300); } }catch(e){} } __call(); }catch(e){} })(); true;`;
+            webviewRef.current?.injectJavaScript(js);
+          } catch {}
+        });
       } catch {}
     })();
     return () => { try { off && off(); } catch {} };
@@ -472,17 +491,30 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
                 webviewRef.current?.injectJavaScript(js);
               }
             } catch {}
+            // drain buffered deeplink payloads
+            try {
+              const list2 = (pendingDeeplinkRef as any).current || [];
+              (pendingDeeplinkRef as any).current = [];
+              for (const v of list2) {
+                // eslint-disable-next-line no-console
+                console.log('[DL][tabs][inject-drain]', v);
+                const js = `(function(){ try{ var val=${JSON.stringify(
+                  String(v)
+                )}; var __t=0; function __call(){ try{ var has=(typeof window.handleDeeplink==='function'); try{ console.log('[DL][web] try', __t+1, 'has=', has); }catch(_){}; if (has){ try{ window.handleDeeplink(val); try{ console.log('[DL][web] done'); }catch(_){ } }catch(e){ try{ console.log('[DL][web] error', e&&e.message); }catch(_){ } } } else if (++__t<3){ setTimeout(__call, 300); } }catch(e){} } __call(); }catch(e){} })(); true;`;
+                webviewRef.current?.injectJavaScript(js);
+              }
+            } catch {}
           } catch {}
         }}
         javaScriptEnabled
         domStorageEnabled
         thirdPartyCookiesEnabled
-        setSupportMultipleWindows={true}
+        setSupportMultipleWindows={false}
         onShouldStartLoadWithRequest={(req) => {
           // Intercept window.open/new-window navigations
           if (req && req.url && req.isTopFrame === false) {
-            router.push({ pathname: '/webview-view', params: { url: req.url } });
-            return false;
+            // Allow loading in the same WebView (no new screen)
+            return true;
           }
           const u = req?.url || '';
           if (u.startsWith('sulbingapp://close_webview')) { try { router.back(); } catch {} return false; }
@@ -586,7 +618,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           return true;
         }}
         onOpenWindow={(event: any) => {
-          // Fallback: 내부 화면으로 열되 __no_header=1 있으면 헤더 숨김
+          // Open in the same WebView instead of pushing a new screen
           const targetUrl = event?.nativeEvent?.targetUrl;
           if (!targetUrl) return;
           const openExternal = (url: string) => {
@@ -686,8 +718,8 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
           };
           if (targetUrl.startsWith('intent://')) { openExternal(targetUrl); return; }
           if (/^https?:\/\//i.test(targetUrl)) {
-            const hide = /[?&]__no_header=1\b/.test(targetUrl);
-            router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
+            const js = `location.href=${JSON.stringify(targetUrl)}; true;`;
+            webviewRef.current?.injectJavaScript(js);
             return;
           }
           // Non-http(s) schemes open externally
@@ -706,13 +738,9 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               }
             } else if (data.type === 'OPEN_WINDOW' && data.url) {
               const u = String(data.url);
-              const name = String(data.name || '');
-              const specs = String(data.specs || '');
-              const hideByName = name === 'noheader';
-              const hideBySpecs = /(^|,|;)\s*noheader\b/i.test(specs);
-              const hideByQuery = /[?&]__no_header=1\b/.test(u);
-              const hide = hideByName || hideBySpecs || hideByQuery;
-              router.push({ pathname: '/webview-view', params: { url: u, ...(hide ? { noHeader: '1' } : {}) } });
+              // Load in the same WebView
+              const js = `location.href=${JSON.stringify(u)}; true;`;
+              webviewRef.current?.injectJavaScript(js);
               return;
             } else if (data.type === 'REQUEST_FCM_TOKEN') {
               const id = String(data.id);

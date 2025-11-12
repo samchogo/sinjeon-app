@@ -22,6 +22,33 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const brandBg = '#863534';
+  const baseWebUrl = String((Constants.expoConfig?.extra as any)?.WEBVIEW_URL || '');
+  const allowedHost = React.useMemo(() => {
+    try { return new URL(baseWebUrl).host.toLowerCase(); } catch { return ''; }
+  }, [baseWebUrl]);
+  const lightTheme = React.useMemo(
+    () => ({
+      ...DefaultTheme,
+      colors: {
+        ...DefaultTheme.colors,
+        background: brandBg,
+        card: brandBg,
+      },
+    }),
+    [brandBg]
+  );
+  const darkTheme = React.useMemo(
+    () => ({
+      ...DarkTheme,
+      colors: {
+        ...DarkTheme.colors,
+        background: brandBg,
+        card: brandBg,
+      },
+    }),
+    [brandBg]
+  );
   const router = useRouter();
 
   React.useEffect(() => {
@@ -55,6 +82,22 @@ export default function RootLayout() {
       try {
         const parsed: any = Linking.parse(u);
         if (parsed?.scheme === 'sulbingapp') {
+          const rawPath = String(parsed?.path || '');
+          // Support payload-only form: sulbingapp://web=<payload>
+          if (/^web=/i.test(rawPath)) {
+            const payloadEnc = rawPath.slice(4);
+            let payload = payloadEnc;
+            try { payload = decodeURIComponent(payloadEnc); } catch {}
+            (async () => {
+              try {
+                const { eventBus } = await import('@/lib/event-bus');
+                // eslint-disable-next-line no-console
+                console.log('[DL] deliver web payload only (path form)');
+                (eventBus as any).emit('DEEPLINK_WEB', { payload });
+              } catch {}
+            })();
+            return;
+          }
           // test push deep link: sulbingapp://push?data=<json or kv>
           if (parsed?.path === 'push' || parsed?.path === 'test_push') {
             (async () => {
@@ -77,26 +120,54 @@ export default function RootLayout() {
           if (parsed?.path === 'web') {
             const q = parsed?.queryParams || {};
             let target = q?.url ? String(q.url) : '';
+            const webPayload = q?.web ? String(q.web) : '';
+            // If web payload is provided, do not redirect; only notify WebView to handle it
+            if (webPayload) {
+              (async () => {
+                try {
+                  const { eventBus } = await import('@/lib/event-bus');
+                  // eslint-disable-next-line no-console
+                  console.log('[DL] deliver web payload only');
+                  (eventBus as any).emit('DEEPLINK_WEB', { payload: webPayload });
+                } catch {}
+              })();
+              return;
+            }
             if (target && !/^https?:\/\//i.test(target)) {
               const base = String((Constants.expoConfig?.extra as any)?.WEBVIEW_URL || '');
               const baseTrim = base.replace(/\/+$/, '');
               const rel = target.replace(/^\/+/, '');
               target = `${baseTrim}/${rel}`;
             }
+            // Allow only URLs whose host matches WEBVIEW_URL host (relative paths already mapped above)
+            try {
+              if (target && /^https?:\/\//i.test(target) && allowedHost) {
+                const host = new URL(target).host.toLowerCase();
+                if (host !== allowedHost) {
+                  // eslint-disable-next-line no-console
+                  console.log('[DL] blocked by host filter', { targetHost: host, allowedHost });
+                  return;
+                }
+              }
+            } catch {}
             if (target) {
-              router.push({ pathname: '/webview-view', params: { url: target } });
+              router.replace({ pathname: '/webview-view', params: { url: target } });
             }
           }
         }
       } catch {}
     };
 
+    const sub = Linking.addEventListener('url', ({ url }) => openWeb(url));
     (async () => {
-      // keep splash briefly for UX consistency, then hide
-      await new Promise((r) => setTimeout(r, 1000));
+      // Process initial URL first, then hide splash to avoid flicker/missed routing
+      try {
+        const initialUrl = await Linking.getInitialURL().catch(() => null);
+        openWeb(initialUrl || undefined);
+      } catch {}
       try { await SplashScreen.hideAsync(); } catch {}
 
-      // After splash: request PUSH then LOCATION sequentially
+      // After splash: request PUSH then LOCATION sequentially (non-blocking for UI)
       try {
         if (Platform.OS === 'android') {
           if (Platform.Version >= 33) {
@@ -119,9 +190,6 @@ export default function RootLayout() {
 
       // Location permission prompts will occur on-demand from WebView requests only
     })();
-
-    const sub = Linking.addEventListener('url', ({ url }) => openWeb(url));
-    Linking.getInitialURL().then((url) => openWeb(url));
     return () => { cancelled = true; sub.remove(); };
   }, [router]);
 

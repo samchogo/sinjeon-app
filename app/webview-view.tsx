@@ -15,7 +15,7 @@ let __IOS_FCM_REQUEST_IN_FLIGHT_VIEW = false;
 let __ALBUM_IN_FLIGHT_VIEW = false;
 
 export default function WebviewViewScreen() {
-  const { url, noHeader } = useLocalSearchParams<{ url?: string; noHeader?: string }>();
+  const { url, noHeader, webPayload } = useLocalSearchParams<{ url?: string; noHeader?: string; webPayload?: string }>();
   const router = useRouter();
   const webviewRef = React.useRef<WebView>(null);
   const [title, setTitle] = React.useState<string>('');
@@ -24,6 +24,10 @@ export default function WebviewViewScreen() {
   const backTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isReadyRef = React.useRef(false);
   const pendingPushRef = React.useRef<any[]>([]);
+  const deeplinkPayloadRef = React.useRef<string | undefined>(undefined);
+  React.useEffect(() => {
+    deeplinkPayloadRef.current = typeof webPayload === 'string' && webPayload.length > 0 ? webPayload : undefined;
+  }, [webPayload]);
 
   const injectedTitleObserver = `(() => {
     function sendTitle(){ try { window.ReactNativeWebView?.postMessage(JSON.stringify({ type:'TITLE', title: document.title||'' })); } catch(e){} }
@@ -129,6 +133,14 @@ export default function WebviewViewScreen() {
     }
   }, [headerTitleFromUrl]);
 
+  // Fallback title: derive from URL when document.title isn't available
+  React.useEffect(() => {
+    if (presetTitleRef.current) return;
+    if (title && title !== 'Loading...') return;
+    // If we can't read a meaningful title, use the app name as a friendly default.
+    setTitle('설빙');
+  }, [resolvedUrl, url, title]);
+
   if (!url) {
     return (
       <SafeAreaView style={styles.container}>
@@ -195,6 +207,24 @@ export default function WebviewViewScreen() {
           )}); } }catch(e){} })(); true;`;
           webviewRef.current?.injectJavaScript(js);
         });
+        // Listen deeplink payload and inject with logs and retry
+        (eventBus as any).on('DEEPLINK_WEB', (p: any) => {
+          try {
+            const payload = p && 'payload' in p ? String(p.payload) : '';
+            if (!isReadyRef.current) {
+              pendingPushRef.current.push({ __DL__: payload });
+              // eslint-disable-next-line no-console
+              console.log('[DL][view][buffer]', payload);
+              return;
+            }
+            // eslint-disable-next-line no-console
+            console.log('[DL][view][inject]', payload);
+            const js = `(function(){ try{ var v=${JSON.stringify(
+              String(payload)
+            )}; var __t=0; function __call(){ try{ var has=(typeof window.handleDeeplink==='function'); try{ console.log('[DL][web] try', __t+1, 'has=', has); }catch(_){}; if (has){ try{ window.handleDeeplink(v); try{ console.log('[DL][web] done'); }catch(_){ } }catch(e){ try{ console.log('[DL][web] error', e&&e.message); }catch(_){ } } } else if (++__t<3){ setTimeout(__call, 300); } }catch(e){} } __call(); }catch(e){} })(); true;`;
+            webviewRef.current?.injectJavaScript(js);
+          } catch {}
+        });
       } catch {}
     })();
     return () => {
@@ -253,6 +283,16 @@ export default function WebviewViewScreen() {
                   pl
                 )}); } }catch(e){} })(); true;`;
                 webviewRef.current?.injectJavaScript(js);
+              }
+            } catch {}
+            // inject deeplink payload to window.handleDeeplink if provided
+            try {
+              const payload = deeplinkPayloadRef.current;
+              if (payload) {
+                const jsDeeplink = `(function(){try{var v=${JSON.stringify(
+                  String(payload)
+                )}; if (typeof window.handleDeeplink==='function'){ window.handleDeeplink(v); } else { try{ console.log('[DL][web] handleDeeplink not defined'); }catch(_){} setTimeout(function(){ try{ if (typeof window.handleDeeplink==='function'){ window.handleDeeplink(v); } }catch(e){} }, 300); } }catch(e){} })(); true;`;
+                webviewRef.current?.injectJavaScript(jsDeeplink);
               }
             } catch {}
           } catch {}
@@ -439,8 +479,8 @@ export default function WebviewViewScreen() {
           };
           if (targetUrl.startsWith('intent://')) { openExternal(targetUrl); return; }
           if (/^https?:\/\//i.test(targetUrl)) {
-            const hide = /[?&]__no_header=1\b/.test(targetUrl);
-            router.push({ pathname: '/webview-view', params: { url: targetUrl, ...(hide ? { noHeader: '1' } : {}) } });
+            const js = `location.href=${JSON.stringify(targetUrl)}; true;`;
+            webviewRef.current?.injectJavaScript(js);
             return;
           }
           // Non-http(s) schemes open externally
@@ -459,13 +499,9 @@ export default function WebviewViewScreen() {
             }
             if (data.type === 'OPEN_WINDOW' && data.url) {
               const u = String(data.url);
-              const name = String(data.name || '');
-              const specs = String(data.specs || '');
-              const hideByName = name === 'noheader';
-              const hideBySpecs = /(^|,|;)\s*noheader\b/i.test(specs);
-              const hideByQuery = /[?&]__no_header=1\b/.test(u);
-              const hide = hideByName || hideBySpecs || hideByQuery;
-              router.push({ pathname: '/webview-view', params: { url: u, ...(hide ? { noHeader: '1' } : {}) } });
+              // Load in the same WebView
+              const js = `location.href=${JSON.stringify(u)}; true;`;
+              webviewRef.current?.injectJavaScript(js);
               return;
             }
             if (data.type === 'REQUEST_SHARE_KAKAO') {
