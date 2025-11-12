@@ -28,6 +28,26 @@ export default function WebviewViewScreen() {
   const deeplinkPayloadRef = React.useRef<string | undefined>(undefined);
   const [isOffline, setIsOffline] = React.useState<boolean>(false);
   const [hadLoadError, setHadLoadError] = React.useState<boolean>(false);
+  const [overlayGate, setOverlayGate] = React.useState<boolean>(true);
+  const openNetworkSettings = React.useCallback(() => {
+    if (Platform.OS === 'android') {
+      (async () => {
+        const intents = [
+          'intent:#Intent;action=android.settings.WIFI_SETTINGS;end',
+          'intent:#Intent;action=android.settings.WIRELESS_SETTINGS;end',
+          'intent:#Intent;action=android.settings.DATA_ROAMING_SETTINGS;end',
+          'intent:#Intent;action=android.settings.SETTINGS;end',
+        ];
+        for (const it of intents) {
+          const ok = await RNLinking.openURL(it).then(() => true).catch(() => false);
+          if (ok) return;
+        }
+        try { await RNLinking.openSettings(); } catch {}
+      })();
+    } else {
+      RNLinking.openSettings().catch(() => {});
+    }
+  }, []);
   React.useEffect(() => {
     deeplinkPayloadRef.current = typeof webPayload === 'string' && webPayload.length > 0 ? webPayload : undefined;
   }, [webPayload]);
@@ -242,6 +262,7 @@ export default function WebviewViewScreen() {
         (eventBus as any).on('DEEPLINK_WEB', (p: any) => {
           try {
             const payload = p && 'payload' in p ? String(p.payload) : '';
+            try { setHadLoadError(false); setIsOffline(false); setOverlayGate(false); setTimeout(() => setOverlayGate(true), 1500); } catch {}
             if (!isReadyRef.current) {
               pendingPushRef.current.push({ __DL__: payload });
               // eslint-disable-next-line no-console
@@ -269,6 +290,12 @@ export default function WebviewViewScreen() {
     };
   }, []);
 
+  // Mark child webview active while this screen is mounted
+  React.useEffect(() => {
+    try { (global as any).__WEB_CHILD_ACTIVE = true; } catch {}
+    return () => { try { (global as any).__WEB_CHILD_ACTIVE = false; } catch {} };
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       {!hideHeader && (
@@ -294,7 +321,11 @@ export default function WebviewViewScreen() {
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         onLoad={() => {
           try {
+            setHadLoadError(false);
             isReadyRef.current = true;
+            // Ensure a fallback handleDeeplink exists on the page
+            const injectedFallbackHandle = `(function(){try{ if (typeof window.handleDeeplink!=='function'){ window.handleDeeplink=function(p){ try{ var s=String(p||''); try{ s=decodeURIComponent(s);}catch(_){ } if (/^https?:\\/\\//i.test(s)){ location.assign(s); return; } var path=(s && s.charAt(0)==='/')?s:('/'+s); if (typeof navigateTo==='function'){ try{ navigateTo(path); return; }catch(e){} } if (window.$nuxt && window.$nuxt.$router){ try{ window.$nuxt.$router.push(path); return; }catch(e){} } location.assign(path); }catch(e){} }; } }catch(e){} })(); true;`;
+            webviewRef.current?.injectJavaScript(injectedFallbackHandle);
             // ensure helpers are present even if initial injection missed due to timing
             webviewRef.current?.injectJavaScript(injectedWindowOpenJs);
             webviewRef.current?.injectJavaScript(injectedRequestWindowJs);
@@ -326,6 +357,22 @@ export default function WebviewViewScreen() {
                   String(payload)
                 )}; if (typeof window.handleDeeplink==='function'){ window.handleDeeplink(v); } else { try{ console.log('[DL][web] handleDeeplink not defined'); }catch(_){} setTimeout(function(){ try{ if (typeof window.handleDeeplink==='function'){ window.handleDeeplink(v); } }catch(e){} }, 300); } }catch(e){} })(); true;`;
                 webviewRef.current?.injectJavaScript(jsDeeplink);
+              }
+            } catch {}
+            // drain any global deeplink queue buffered by tabs when child was active
+            try {
+              const root: any = (global as any);
+              const q = root && Array.isArray(root.__DEEPLINK_WEB_QUEUE) ? root.__DEEPLINK_WEB_QUEUE : [];
+              if (q && q.length) {
+                root.__DEEPLINK_WEB_QUEUE = [];
+                for (const pl of q) {
+                  // eslint-disable-next-line no-console
+                  console.log('[DL][view][inject-drain-global]', pl);
+                  const js = `(function(){ try{ var v=${JSON.stringify(
+                    String(pl)
+                  )}; var __t=0; function __call(){ try{ var has=(typeof window.handleDeeplink==='function'); try{ console.log('[DL][web] try', __t+1, 'has=', has); }catch(_){}; if (has){ try{ window.handleDeeplink(v); try{ console.log('[DL][web] done'); }catch(_){ } }catch(e){ try{ console.log('[DL][web] error', e&&e.message); }catch(_){ } } } else if (++__t<3){ setTimeout(__call, 300); } }catch(e){} } __call(); }catch(e){} })(); true;`;
+                  webviewRef.current?.injectJavaScript(js);
+                }
               }
             } catch {}
           } catch {}
@@ -852,14 +899,14 @@ export default function WebviewViewScreen() {
         }}
       />
 
-      {(isOffline || hadLoadError) && (
+      {(overlayGate && (isOffline || hadLoadError)) && (
         <View style={styles.offlineOverlay}>
-          <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다. 네트워크 연결을 확인해 주세요.</Text>
+          <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다.{'\n'}네트워크 연결을 확인해 주세요.</Text>
           <View style={styles.offlineActions}>
             <Pressable onPress={() => { try { webviewRef.current?.reload(); } catch {} }} style={styles.offlineBtn}>
               <Text style={{ color: '#fff' }}>다시 시도</Text>
             </Pressable>
-            <Pressable onPress={() => RNLinking.openSettings().catch(() => {})} style={styles.offlineBtnSecondary}>
+            <Pressable onPress={openNetworkSettings} style={styles.offlineBtnSecondary}>
               <Text style={{ color: '#fff' }}>설정 열기</Text>
             </Pressable>
           </View>
@@ -892,7 +939,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: '#fff',
+    backgroundColor: '#f2f2f2',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -901,6 +948,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
     textAlign: 'center',
+  },
+  offlineIcon: {
+    width: 64,
+    height: 64,
+    marginBottom: 12,
+    resizeMode: 'contain',
   },
   offlineActions: {
     flexDirection: 'row',

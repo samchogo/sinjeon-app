@@ -58,3 +58,19 @@ try {
 } catch {}
 
 
+// Dev helper: emit a synthetic deeplink-web payload from console
+try {
+  const root =
+    (typeof globalThis !== 'undefined' && globalThis) ||
+    (typeof global !== 'undefined' && global) ||
+    {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  root.__emitTestDL = (payload) => {
+    try {
+      const val = String(payload ?? '');
+      // eslint-disable-next-line no-console
+      console.log('[DL][root][manual]', val);
+      eventBus.emit('DEEPLINK_WEB', { payload: val });
+    } catch {}
+  };
+} catch {}

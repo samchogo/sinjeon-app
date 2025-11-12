@@ -83,6 +83,40 @@ export default function RootLayout() {
         const parsed: any = Linking.parse(u);
         if (parsed?.scheme === 'sulbingapp') {
           const rawPath = String(parsed?.path || '');
+          // Root form with query only: sulbingapp://?web=... or ?url=... or ?data=...
+          if (!rawPath) {
+            const q = parsed?.queryParams || {};
+            const webQ = q?.web ? String(q.web) : '';
+            const urlQ = q?.url ? String(q.url) : '';
+            // Prefer web, then url
+            const cand = webQ || urlQ;
+            if (cand) {
+              (async () => {
+                try {
+                  const { eventBus } = await import('@/lib/event-bus');
+                  // eslint-disable-next-line no-console
+                  console.log('[DL] deliver web payload only (root form)');
+                  (eventBus as any).emit('DEEPLINK_WEB', { payload: cand });
+                } catch {}
+              })();
+              return;
+            }
+            // Generic data passthrough
+            if (q?.data) {
+              let payload = String(q.data);
+              // attempt parse → re-stringify to keep JSON shape when needed
+              try { const obj = JSON.parse(payload); payload = JSON.stringify(obj); } catch {}
+              (async () => {
+                try {
+                  const { eventBus } = await import('@/lib/event-bus');
+                  // eslint-disable-next-line no-console
+                  console.log('[DL] deliver data payload (root form)');
+                  (eventBus as any).emit('DEEPLINK_WEB', { payload });
+                } catch {}
+              })();
+              return;
+            }
+          }
           // Support payload-only form: sulbingapp://web=<payload>
           if (/^web=/i.test(rawPath)) {
             const payloadEnc = rawPath.slice(4);
@@ -133,25 +167,34 @@ export default function RootLayout() {
               })();
               return;
             }
-            if (target && !/^https?:\/\//i.test(target)) {
-              const base = String((Constants.expoConfig?.extra as any)?.WEBVIEW_URL || '');
-              const baseTrim = base.replace(/\/+$/, '');
-              const rel = target.replace(/^\/+/, '');
-              target = `${baseTrim}/${rel}`;
-            }
-            // Allow only URLs whose host matches WEBVIEW_URL host (relative paths already mapped above)
-            try {
-              if (target && /^https?:\/\//i.test(target) && allowedHost) {
-                const host = new URL(target).host.toLowerCase();
-                if (host !== allowedHost) {
-                  // eslint-disable-next-line no-console
-                  console.log('[DL] blocked by host filter', { targetHost: host, allowedHost });
-                  return;
-                }
-              }
-            } catch {}
+            // Treat url= same as payload injection (no new screen)
             if (target) {
-              router.replace({ pathname: '/webview-view', params: { url: target } });
+              // Map relative to absolute within allowed host
+              if (!/^https?:\/\//i.test(target)) {
+                const base = String((Constants.expoConfig?.extra as any)?.WEBVIEW_URL || '');
+                const baseTrim = base.replace(/\/+$/, '');
+                const rel = target.replace(/^\/+/, '');
+                target = `${baseTrim}/${rel}`;
+              }
+              try {
+                if (allowedHost) {
+                  const host = new URL(target).host.toLowerCase();
+                  if (host !== allowedHost) {
+                    // eslint-disable-next-line no-console
+                    console.log('[DL] blocked by host filter', { targetHost: host, allowedHost });
+                    return;
+                  }
+                }
+              } catch {}
+              (async () => {
+                try {
+                  const { eventBus } = await import('@/lib/event-bus');
+                  // eslint-disable-next-line no-console
+                  console.log('[DL] deliver web url payload (no route)', target);
+                  (eventBus as any).emit('DEEPLINK_WEB', { payload: target });
+                } catch {}
+              })();
+              return;
             }
           }
         }

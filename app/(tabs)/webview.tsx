@@ -23,8 +23,29 @@ export default function WebviewScreen() {
   const isReadyRef = React.useRef(false);
   const pendingPushRef = React.useRef<any[]>([]);
   const pendingDeeplinkRef = React.useRef<string[]>([]);
+  const lastDeeplinkRef = React.useRef<string | null>(null);
   const [isOffline, setIsOffline] = React.useState<boolean>(false);
   const [hadLoadError, setHadLoadError] = React.useState<boolean>(false);
+  const [overlayGate, setOverlayGate] = React.useState<boolean>(true);
+  const openNetworkSettings = React.useCallback(() => {
+    if (Platform.OS === 'android') {
+      (async () => {
+        const intents = [
+          'intent:#Intent;action=android.settings.WIFI_SETTINGS;end',
+          'intent:#Intent;action=android.settings.WIRELESS_SETTINGS;end',
+          'intent:#Intent;action=android.settings.DATA_ROAMING_SETTINGS;end',
+          'intent:#Intent;action=android.settings.SETTINGS;end',
+        ];
+        for (const it of intents) {
+          const ok = await RNLinking.openURL(it).then(() => true).catch(() => false);
+          if (ok) return;
+        }
+        try { await RNLinking.openSettings(); } catch {}
+      })();
+    } else {
+      RNLinking.openSettings().catch(() => {});
+    }
+  }, []);
   const injectedGeolocationJs = useMemo(() => `(() => {
   try {
     if (!window.__RN_LOCATION_CALLBACKS) { window.__RN_LOCATION_CALLBACKS = {}; }
@@ -402,6 +423,20 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         (eventBus as any).on('DEEPLINK_WEB', (p: any) => {
           try {
             const payload = p && 'payload' in p ? String(p.payload) : '';
+            // clear any overlay before handling deeplink payload (no navigation in web?web= case)
+            try { setHadLoadError(false); setIsOffline(false); setOverlayGate(false); setTimeout(() => setOverlayGate(true), 1500); } catch {}
+            try { (lastDeeplinkRef as any).current = payload; } catch {}
+            // If child webview is active, buffer globally for the child to drain
+            try {
+              const root: any = (global as any);
+              if (root && root.__WEB_CHILD_ACTIVE) {
+                if (!Array.isArray(root.__DEEPLINK_WEB_QUEUE)) root.__DEEPLINK_WEB_QUEUE = [];
+                root.__DEEPLINK_WEB_QUEUE.push(payload);
+                // eslint-disable-next-line no-console
+                console.log('[DL][tabs][buffer-child]', payload);
+                return;
+              }
+            } catch {}
             if (!(isReadyRef as any).current) {
               (pendingDeeplinkRef as any).current.push(payload);
               // eslint-disable-next-line no-console
@@ -488,7 +523,11 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         onLoad={() => {
           try {
+            setHadLoadError(false);
             (isReadyRef as any).current = true;
+            // Ensure a fallback handleDeeplink exists on the page (SPA-first, fallback to assign)
+            const injectedFallbackHandle = `(function(){try{ if (typeof window.handleDeeplink!=='function'){ window.handleDeeplink=function(p){ try{ var s=String(p||''); try{ s=decodeURIComponent(s);}catch(_){ } if (/^https?:\\/\\//i.test(s)){ location.assign(s); return; } var path=(s && s.charAt(0)==='/')?s:('/'+s); if (typeof navigateTo==='function'){ try{ navigateTo(path); return; }catch(e){} } if (window.$nuxt && window.$nuxt.$router){ try{ window.$nuxt.$router.push(path); return; }catch(e){} } location.assign(path); }catch(e){} }; } }catch(e){} })(); true;`;
+            webviewRef.current?.injectJavaScript(injectedFallbackHandle);
             webviewRef.current?.injectJavaScript(injectedFirebaseModShimJs);
             webviewRef.current?.injectJavaScript(injectedFcmJs);
             webviewRef.current?.injectJavaScript(injectedAppVersionJs);
@@ -531,11 +570,26 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
               for (const v of list2) {
                 // eslint-disable-next-line no-console
                 console.log('[DL][tabs][inject-drain]', v);
+                const val = String(v);
+                try { setHadLoadError(false); setIsOffline(false); setOverlayGate(false); setTimeout(() => setOverlayGate(true), 1500); } catch {}
                 const js = `(function(){ try{ var val=${JSON.stringify(
-                  String(v)
+                  val
                 )}; var __t=0; function __call(){ try{ var has=(typeof window.handleDeeplink==='function'); try{ console.log('[DL][web] try', __t+1, 'has=', has); }catch(_){}; if (has){ try{ window.handleDeeplink(val); try{ console.log('[DL][web] done'); }catch(_){ } }catch(e){ try{ console.log('[DL][web] error', e&&e.message); }catch(_){ } } } else if (++__t<3){ setTimeout(__call, 300); } }catch(e){} } __call(); }catch(e){} })(); true;`;
                 webviewRef.current?.injectJavaScript(js);
               }
+              // Also inject last known deeplink once after load (in case page reloaded)
+              try {
+                const last = (lastDeeplinkRef as any).current;
+                if (last) {
+                  // eslint-disable-next-line no-console
+                  console.log('[DL][tabs][inject-last]', last);
+                  const jsLast = `(function(){ try{ var v=${JSON.stringify(
+                    String(last)
+                  )}; if (typeof window.handleDeeplink==='function'){ window.handleDeeplink(v); } }catch(e){} })(); true;`;
+                  webviewRef.current?.injectJavaScript(jsLast);
+                  (lastDeeplinkRef as any).current = null;
+                }
+              } catch {}
             } catch {}
           } catch {}
         }}
@@ -1101,14 +1155,15 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         }}
       />
 
-      {(isOffline || hadLoadError) && (
+      {(overlayGate && (isOffline || hadLoadError)) && (
         <View style={styles.offlineOverlay}>
-          <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다. 네트워크 연결을 확인해 주세요.</Text>
+          <Text style={styles.offlineTitle}>설빙</Text>
+          <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다.{'\n'}네트워크 연결을 확인해 주세요.</Text>
           <View style={styles.offlineActions}>
             <Pressable onPress={() => { try { webviewRef.current?.reload(); } catch {} }} style={styles.offlineBtn}>
               <Text style={{ color: '#fff' }}>다시 시도</Text>
             </Pressable>
-            <Pressable onPress={() => RNLinking.openSettings().catch(() => {})} style={styles.offlineBtnSecondary}>
+            <Pressable onPress={openNetworkSettings} style={styles.offlineBtnSecondary}>
               <Text style={{ color: '#fff' }}>설정 열기</Text>
             </Pressable>
           </View>
@@ -1141,15 +1196,28 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: '#fff',
+    backgroundColor: '#f2f2f2',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
+  offlineTitle: {
+    fontSize: 19,
+    fontWeight: 'bold',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
   offlineText: {
-    fontSize: 16,
+    fontSize: 14,
     marginBottom: 12,
     textAlign: 'center',
+    color: '#666',
+  },
+  offlineIcon: {
+    width: 64,
+    height: 64,
+    marginBottom: 12,
+    resizeMode: 'contain',
   },
   offlineActions: {
     flexDirection: 'row',
@@ -1168,7 +1236,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#444',
     borderRadius: 6,
     marginHorizontal: 6,
-  },
+  }, 
 });
 
 
