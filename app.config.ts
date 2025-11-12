@@ -28,12 +28,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   // WebView URL per variant (override via env)
   const WEBVIEW_URL =
     process.env.EXPO_PUBLIC_WEBVIEW_URL ??
-    // (APP_VARIANT === 'prod'
-    //   ? 'https://sapp.sulbing.com'
-    //   : 'https://dev.d2htrwala9rb4i.amplifyapp.com');
     (APP_VARIANT === 'prod'
       ? 'https://sapp.sulbing.com'
-      : 'http://192.168.103.22:5137');
+      : 'https://dev.d2htrwala9rb4i.amplifyapp.com');
+    // (APP_VARIANT === 'prod'
+    //   ? 'https://sapp.sulbing.com'
+    //   : 'http://192.168.103.22:5137');
 
   return {
     ...config,
@@ -108,7 +108,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       package: ANDROID_PACKAGE,
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
-      versionCode: 1000,
+      versionCode: 1001,
       adaptiveIcon: {
         backgroundColor: '#863534',
         foregroundImage: './assets/images/android-icon-foreground.png',
