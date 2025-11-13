@@ -89,7 +89,7 @@ const SCHEMES = [
   'v3mobileplusweb',
   'tauthlink',
   'ktauthexternalcall',
-  'upluscorpoation',
+  'upluscorporation',
   'monimopay',
   'monimopayauth',
   // Common market fallback

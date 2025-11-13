@@ -99,7 +99,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           'v3mobileplusweb',
           'tauthlink',
           'ktauthexternalcall',
-          'upluscorpoation',
+          'upluscorporation',
           'monimopay',
           'monimopayauth',
         ],
@@ -155,6 +155,16 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...(config.extra ?? {}),
       APP_VARIANT,
       WEBVIEW_URL,
+      // Toggle for showing offline UI (overlay/alerts) when network is unreachable
+      // Can be overridden via EXPO_PUBLIC_OFFLINE_UI_ENABLED = 'true' | 'false'
+      OFFLINE_UI_ENABLED: (() => {
+        try {
+          const v = String(process.env.EXPO_PUBLIC_OFFLINE_UI_ENABLED ?? 'false').toLowerCase();
+          return v === '1' || v === 'true' || v === 'yes';
+        } catch {
+          return true;
+        }
+      })(),
     },
   };
 };

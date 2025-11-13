@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import { getApps } from '@react-native-firebase/app';
 import messaging from '@react-native-firebase/messaging';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -18,6 +18,7 @@ let __ALBUM_IN_FLIGHT_VIEW = false;
 export default function WebviewViewScreen() {
   const { url, noHeader, webPayload } = useLocalSearchParams<{ url?: string; noHeader?: string; webPayload?: string }>();
   const router = useRouter();
+  const navigation = useNavigation<any>();
   const webviewRef = React.useRef<WebView>(null);
   const [title, setTitle] = React.useState<string>('');
   const [canGoBack, setCanGoBack] = React.useState(false);
@@ -174,10 +175,31 @@ export default function WebviewViewScreen() {
     );
   }
 
+  const offlineUiEnabled: boolean = React.useMemo(() => {
+    try {
+      const v = (Constants as any)?.expoConfig?.extra?.OFFLINE_UI_ENABLED;
+      return typeof v === 'boolean' ? v : true;
+    } catch {
+      return true;
+    }
+  }, []);
+
+  const backOrHome = React.useCallback(() => {
+    try {
+      if ((navigation as any)?.canGoBack?.()) {
+        router.back();
+      } else {
+        router.replace('/');
+      }
+    } catch {
+      router.replace('/');
+    }
+  }, [router, navigation]);
+
   const doDefaultBack = React.useCallback(() => {
     if (canGoBack) webviewRef.current?.goBack();
-    else router.back();
-  }, [canGoBack, router]);
+    else backOrHome();
+  }, [canGoBack, backOrHome]);
 
   const requestWebBackDecision = () => {
     if (pendingBackRef.current) return;
@@ -196,7 +218,7 @@ export default function WebviewViewScreen() {
   };
 
   const handleClose = () => {
-    router.back();
+    backOrHome();
   };
 
   useFocusEffect(
@@ -385,7 +407,7 @@ export default function WebviewViewScreen() {
         onShouldStartLoadWithRequest={(req) => {
           const u = req?.url || '';
           if (isOffline) { return false; }
-          if (u.startsWith('sulbingapp://close_webview')) { router.back(); return false; }
+          if (u.startsWith('sulbingapp://close_webview')) { backOrHome(); return false; }
           const openExternal = (url: string) => {
             if (!url) return;
             if (/^intent:/i.test(url)) {
@@ -687,7 +709,7 @@ export default function WebviewViewScreen() {
                   try { (eventBus as any).emit('WINDOW_CHILD_CLOSED', { data: payload ?? null }); } catch {}
                 }).catch(() => {});
               } catch {}
-              router.back();
+              backOrHome();
               return;
             }
             if (data.type === 'COOP_BRIDGE') {
@@ -899,7 +921,7 @@ export default function WebviewViewScreen() {
         }}
       />
 
-      {(overlayGate && (isOffline || hadLoadError)) && (
+      {(offlineUiEnabled && overlayGate && (isOffline || hadLoadError)) && (
         <View style={styles.offlineOverlay}>
           <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다.{'\n'}네트워크 연결을 확인해 주세요.</Text>
           <View style={styles.offlineActions}>
