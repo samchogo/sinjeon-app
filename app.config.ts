@@ -6,11 +6,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   const ANDROID_PACKAGE =
     process.env.ANDROID_PACKAGE ??
-    (APP_VARIANT === 'prod' ? 'com.sulbing.mobile.app' : 'com.sulbing.mobile.app.dev');
+    (APP_VARIANT === 'prod' ? 'kr.co.sinjeon.app' : 'kr.co.sinjeon.app.dev');
 
   const IOS_BUNDLE_ID =
     process.env.IOS_BUNDLE_ID ??
-    (APP_VARIANT === 'prod' ? 'com.sulbing.mobile.app' : 'com.sulbing.mobile.app.dev');
+    (APP_VARIANT === 'prod' ? 'kr.co.sinjeon.app' : 'kr.co.sinjeon.app.dev');
 
   // Credential file paths (override via ANDROID_GOOGLE_SERVICES_FILE / IOS_GOOGLE_SERVICES_FILE)
   const ANDROID_GOOGLE_SERVICES_FILE =
@@ -29,20 +29,20 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const WEBVIEW_URL =
     process.env.EXPO_PUBLIC_WEBVIEW_URL ??
     (APP_VARIANT === 'prod'
-      ? 'https://sapp.sulbing.com'
-      : 'https://dev.d2htrwala9rb4i.amplifyapp.com');
+      ? 'https://app.sinjeon.co.kr'
+      : 'https://dev.d219rtrkrebb73.amplifyapp.com');
     // (APP_VARIANT === 'prod'
-    //   ? 'https://sapp.sulbing.com'
+    //   ? 'https://sapp.sinjeon.com'
     //   : 'http://192.168.103.22:5137');
 
   return {
     ...config,
-    name: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
-    slug: 'sulbing-app',
-    version: '1.0.0',
+    name: APP_VARIANT === 'prod' ? '신전떡볶이' : '신전떡볶이 Dev',
+    slug: 'sinjeon-app',
+    version: '1.0.3',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
-    scheme: 'sulbingapp',
+    scheme: 'sinjeonapp',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     ios: {
@@ -52,7 +52,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       buildNumber: '1000',
       entitlements: { 'aps-environment': 'development' },
       infoPlist: {
-        CFBundleDisplayName: APP_VARIANT === 'prod' ? '설빙' : '설빙 Dev',
+        CFBundleDisplayName: APP_VARIANT === 'prod' ? '신전떡볶이' : '신전떡볶이 Dev',
         NSCameraUsageDescription: '바코드 스캔을 위해 카메라 접근 권한이 필요합니다.',
         NSContactsUsageDescription: '주소록에서 연락처를 선택하기 위해 접근 권한이 필요합니다.',
         NSPhotoLibraryUsageDescription: '사진을 선택하기 위해 사진 라이브러리 접근 권한이 필요합니다.',
@@ -110,9 +110,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
       versionCode: 1001,
       adaptiveIcon: {
-        backgroundColor: '#863534',
+        backgroundColor: '#FFFFFF',
         foregroundImage: './assets/images/android-icon-foreground.png',
-        backgroundImage: './assets/images/android-icon-background.png',
         monochromeImage: './assets/images/android-icon-monochrome.png',
       },
       edgeToEdgeEnabled: true,
@@ -135,8 +134,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           image: './assets/images/splash-image.png',
           imageWidth: 180,
           resizeMode: 'contain',
-          backgroundColor: '#863534',
-          dark: { backgroundColor: '#863534' },
+          backgroundColor: '#FFFFFF',
+          dark: { backgroundColor: '#FFFFFF' },
         },
       ],
       [

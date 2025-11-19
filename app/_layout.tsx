@@ -81,9 +81,9 @@ export default function RootLayout() {
       if (!u) return;
       try {
         const parsed: any = Linking.parse(u);
-        if (parsed?.scheme === 'sulbingapp') {
+        if (parsed?.scheme === 'sinjeonapp') {
           const rawPath = String(parsed?.path || '');
-          // Root form with query only: sulbingapp://?web=... or ?url=... or ?data=...
+          // Root form with query only: sinjeonapp://?web=... or ?url=... or ?data=...
           if (!rawPath) {
             const q = parsed?.queryParams || {};
             const webQ = q?.web ? String(q.web) : '';
@@ -117,7 +117,7 @@ export default function RootLayout() {
               return;
             }
           }
-          // Support payload-only form: sulbingapp://web=<payload>
+          // Support payload-only form: sinjeonapp://web=<payload>
           if (/^web=/i.test(rawPath)) {
             const payloadEnc = rawPath.slice(4);
             let payload = payloadEnc;
@@ -132,7 +132,7 @@ export default function RootLayout() {
             })();
             return;
           }
-          // test push deep link: sulbingapp://push?data=<json or kv>
+          // test push deep link: sinjeonapp://push?data=<json or kv>
           if (parsed?.path === 'push' || parsed?.path === 'test_push') {
             (async () => {
               try {

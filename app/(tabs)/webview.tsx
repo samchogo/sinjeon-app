@@ -353,6 +353,7 @@ export default function WebviewScreen() {
 })(); true;`, []);
   const injectedAllWithFcmJs = useMemo(() => `${injectedFirebaseModShimJs}
 ${injectedFcmJs}
+${injectedFlutterShimJs}
 ${injectedAllJs}
 ${injectedKakaoShareJs}
 ${injectedOpenExternalJs}
@@ -362,6 +363,105 @@ ${injectedOpenSettingsJs}
 ${injectedRequestWindowJs}
 ${injectedCloseWindowJs}
 ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs, injectedAppVersionJs, injectedOpenSettingsJs, injectedRequestWindowJs, injectedCloseWindowJs, injectedBlockFirebaseJs]);
+  const injectedFlutterShimJs = useMemo(() => `(() => {
+  try {
+    if (!window.flutter_inappwebview) window.flutter_inappwebview = {};
+    var bridge = window.flutter_inappwebview;
+    bridge.callHandler = function(name){
+      try {
+        var n = String(name || '');
+        if (n === 'loginCompleteHandler') {
+          try {
+            if (typeof window.requestFcmToken === 'function') {
+              return window.requestFcmToken().then(function(r){
+                try {
+                  var token = r && r.token ? String(r.token) : '';
+                  var osTypeCd = r && r.osTypeCd ? String(r.osTypeCd) : ((/iPad|iPhone|iPod/i.test(navigator.userAgent)) ? 'IOS' : 'ANDROID');
+                  var deviceUid = token; // fallback to token as device UID
+                  return { code: '0000', result: { token: token, deviceUid: deviceUid, osTypeCd: osTypeCd } };
+                } catch(e){ return { code: '9999', result: null }; }
+              }).catch(function(){ return { code: '9999', result: null }; });
+            }
+            // Fallback path if requestFcmToken is not defined yet
+            return new Promise(function(resolve){
+              try {
+                var id = String(Date.now()) + '_' + Math.random().toString(36).slice(2);
+                var done = false;
+                var t = setTimeout(function(){ if (!done) resolve({ code: '9999', result: null }); }, 15000);
+                var orig = window.__onNativeFcmToken;
+                window.__onNativeFcmToken = function(payload){
+                  try {
+                    if (payload && payload.id === id) {
+                      done = true; try{ clearTimeout(t); }catch(_){}
+                      var token = payload && payload.token ? String(payload.token) : '';
+                      var osTypeCd = (payload && payload.osTypeCd) || ((/iPad|iPhone|iPod/i.test(navigator.userAgent)) ? 'IOS' : 'ANDROID');
+                      resolve({ code: '0000', result: { token: token, deviceUid: token, osTypeCd: osTypeCd } });
+                      window.__onNativeFcmToken = orig || window.__onNativeFcmToken;
+                      return;
+                    }
+                  } catch(_){}
+                  try { if (typeof orig === 'function') orig(payload); } catch(_){}
+                };
+                window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REQUEST_FCM_TOKEN', id: id }));
+              } catch(_){ resolve({ code: '9999', result: null }); }
+            });
+          } catch(e) {
+            return Promise.resolve({ code: '9999', result: null });
+          }
+        }
+        if (n === 'getDeviceLocationHandler') {
+          try {
+            return new Promise(function(resolve){
+              try {
+                var done = false;
+                var t = setTimeout(function(){ if (!done) resolve({ code: '9999', result: null }); }, 15000);
+                var onOk = function(pos){
+                  try {
+                    done = true; try{ clearTimeout(t); }catch(_){}
+                    var c = pos && pos.coords ? pos.coords : {};
+                    resolve({ code: '0000', result: { latitude: c.latitude || null, longitude: c.longitude || null } });
+                  } catch(_){ resolve({ code: '9999', result: null }); }
+                };
+                var onErr = function(){ try{ done = true; clearTimeout(t); }catch(_){ } resolve({ code: '9999', result: null }); };
+                if (navigator && navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function') {
+                  navigator.geolocation.getCurrentPosition(onOk, onErr);
+                } else {
+                  resolve({ code: '9999', result: null });
+                }
+              } catch(_){ resolve({ code: '9999', result: null }); }
+            });
+          } catch(e) {
+            return Promise.resolve({ code: '9999', result: null });
+          }
+        }
+        return Promise.resolve(null);
+      } catch(e){ return Promise.resolve(null); }
+    };
+  } catch(e){}
+})(); true;`, []);
+  const injectedCommonFlutterJs = useMemo(() => `(() => {
+  try {
+    if (!window.CommonFlutterInterface) window.CommonFlutterInterface = {};
+    var bridge = window.CommonFlutterInterface;
+    bridge.postMessage = function(message){
+      try {
+        var msgStr = (message == null) ? '' : String(message);
+        var obj = {};
+        try { obj = JSON.parse(msgStr); } catch(_) {}
+        var t = obj && obj.type ? String(obj.type) : '';
+        if (t === 'OPEN_EXTERNAL_BROWSER') {
+          var url = (obj && obj.data && obj.data.url) ? String(obj.data.url) : (obj && obj.url) ? String(obj.url) : '';
+          if (url) {
+            try {
+              window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_EXTERNAL_LINK', url: url }));
+            } catch(_){}
+          }
+          return;
+        }
+      } catch(_){}
+    };
+  } catch(e){}
+})(); true;`, []);
   const injectedCoopBridgeJs = useMemo(
     () =>
       `(() => {
@@ -552,6 +652,8 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             webviewRef.current?.injectJavaScript(injectedFallbackHandle);
             webviewRef.current?.injectJavaScript(injectedFirebaseModShimJs);
             webviewRef.current?.injectJavaScript(injectedFcmJs);
+            webviewRef.current?.injectJavaScript(injectedFlutterShimJs);
+            webviewRef.current?.injectJavaScript(injectedCommonFlutterJs);
             webviewRef.current?.injectJavaScript(injectedAppVersionJs);
             webviewRef.current?.injectJavaScript(injectedCoopBridgeJs);
             webviewRef.current?.injectJavaScript(injectedKakaoShareJs);
@@ -627,7 +729,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             return true;
           }
           const u = req?.url || '';
-          if (u.startsWith('sulbingapp://close_webview')) { try { backOrHome(); } catch {} return false; }
+          if (u.startsWith('sinjeonapp://close_webview')) { try { backOrHome(); } catch {} return false; }
           const openExternal = (url: string) => {
             if (!url) return;
             if (/^intent:/i.test(url)) {
@@ -1184,7 +1286,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
 
       {(offlineUiEnabled && overlayGate && (isOffline || hadLoadError)) && (
         <View style={styles.offlineOverlay}>
-          <Text style={styles.offlineTitle}>설빙</Text>
+          <Text style={styles.offlineTitle}>신전떡볶이</Text>
           <Text style={styles.offlineText}>단말의 통신상태가 오프라인입니다.{'\n'}네트워크 연결을 확인해 주세요.</Text>
           <View style={styles.offlineActions}>
             <Pressable onPress={() => { try { webviewRef.current?.reload(); } catch {} }} style={styles.offlineBtn}>
