@@ -354,6 +354,7 @@ export default function WebviewScreen() {
   const injectedAllWithFcmJs = useMemo(() => `${injectedFirebaseModShimJs}
 ${injectedFcmJs}
 ${injectedFlutterShimJs}
+${injectedFlutterExtendJs}
 ${injectedAllJs}
 ${injectedKakaoShareJs}
 ${injectedOpenExternalJs}
@@ -437,6 +438,22 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
         return Promise.resolve(null);
       } catch(e){ return Promise.resolve(null); }
     };
+  } catch(e){}
+})(); true;`, []);
+  const injectedFlutterExtendJs = useMemo(() => `(() => {
+  try {
+    if (window.flutter_inappwebview && typeof window.flutter_inappwebview.callHandler === 'function') {
+      var __origCall = window.flutter_inappwebview.callHandler;
+      window.flutter_inappwebview.callHandler = function(name){
+        try {
+          var n = String(name || '');
+          if (n === 'getReOrderInfo') {
+            try { return Promise.resolve({ code: '0000', result: null }); } catch(e){ return Promise.resolve({ code:'9999', result:null }); }
+          }
+        } catch(_) {}
+        try { return __origCall.apply(this, arguments); } catch(e){ return Promise.resolve(null); }
+      };
+    }
   } catch(e){}
 })(); true;`, []);
   const injectedCommonFlutterJs = useMemo(() => `(() => {
@@ -653,6 +670,7 @@ ${injectedBlockFirebaseJs}`, [injectedAllJs, injectedFcmJs, injectedKakaoShareJs
             webviewRef.current?.injectJavaScript(injectedFirebaseModShimJs);
             webviewRef.current?.injectJavaScript(injectedFcmJs);
             webviewRef.current?.injectJavaScript(injectedFlutterShimJs);
+            webviewRef.current?.injectJavaScript(injectedFlutterExtendJs);
             webviewRef.current?.injectJavaScript(injectedCommonFlutterJs);
             webviewRef.current?.injectJavaScript(injectedAppVersionJs);
             webviewRef.current?.injectJavaScript(injectedCoopBridgeJs);

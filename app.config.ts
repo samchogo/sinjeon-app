@@ -33,7 +33,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       : 'https://dev.d219rtrkrebb73.amplifyapp.com');
     // (APP_VARIANT === 'prod'
     //   ? 'https://sapp.sinjeon.com'
-    //   : 'http://192.168.103.22:5137');
+    //   : 'http://192.168.103.25:3000');
 
   return {
     ...config,
@@ -132,7 +132,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         'expo-splash-screen',
         {
           image: './assets/images/splash-image.png',
-          imageWidth: 180,
+          imageWidth: 95,
           resizeMode: 'contain',
           backgroundColor: '#FFFFFF',
           dark: { backgroundColor: '#FFFFFF' },

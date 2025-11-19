@@ -2,6 +2,8 @@ import { eventBus } from '@/lib/event-bus';
 import 'expo-router/entry';
 import { Platform } from 'react-native';
 console.log('[INDEX] loaded, Platform=', Platform.OS);
+
+
 // Set background handler only when native Firebase module is available (dev build / production app)
 if (Platform.OS !== 'web') {
   (async () => {
