@@ -106,12 +106,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         ],
       },
     },
-    android: {
+    android: {  
       package: ANDROID_PACKAGE,
       googleServicesFile: ANDROID_GOOGLE_SERVICES_FILE,
       versionCode: 1001,
       adaptiveIcon: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#FF8CB4',
         foregroundImage: './assets/images/icon.png',
         monochromeImage: './assets/images/icon.png',
       },
